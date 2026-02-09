@@ -1,185 +1,247 @@
 <?php
   $activePage = 'emprestimos';
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-br">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GestorPro • Empréstimos</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GestorPro • Empréstimos</title>
 
-  <link rel="stylesheet" href="../assets/css/base.css" />
-<link rel="stylesheet" href="../assets/css/topbar.css" />
-<link rel="stylesheet" href="../assets/css/buttons.css" />
-<link rel="stylesheet" href="../assets/css/forms.css" />
-<link rel="stylesheet" href="../assets/css/list.css" />
-<link rel="stylesheet" href="../assets/css/badges.css" />
-<link rel="stylesheet" href="../assets/css/tabs.css" />
-<link rel="stylesheet" href="../assets/css/modals.css" />
-<link rel="stylesheet" href="../assets/css/emprestimo-detalhes.css" />
-
-</head>
-<body>
-
-<header class="topbar">
-  <div class="topbar__left">
-    <a class="brand" href="index.php"> <!-- ALTERAR DEPOIS -->
-      <span class="brand__logo">∞</span>
-      <span class="brand__name">GestorPro</span>
-    </a>
-  </div>
-
-  <nav class="topbar__nav">
-    <a class="navlink" href="index.html">Início</a> <!-- ALTERAR DEPOIS -->
-    <a class="navlink" href="clientes.html">Clientes</a> <!-- ALTERAR DEPOIS -->
-    <a class="navlink <?= $activePage === 'emprestimos' ? 'is-active' : '' ?>" href="emprestimos.html">Empréstimos</a>
-    <a class="navlink" href="vencimentos.html">Vencimentos</a> <!-- ALTERAR DEPOIS -->
-  </nav>
-
-  <div class="topbar__right">
-    <button class="btn btn--primary" type="button">+ Novo empréstimo</button>
-  </div>
-</header>
-
-<main class="container">
-
-  <div class="page-row">
-    <div class="page-head">
-      <h1 class="page-title">Empréstimos</h1>
-      <p class="page-sub">4 empréstimos cadastrados</p>
-    </div>
-
-    <button class="btn btn--primary" type="button">+ Novo empréstimo</button>
-  </div>
-
-  <!-- Tabs/Filtros -->
-  <div class="tabs" id="emprestimosTabs">
-  <button class="tab is-active" data-filter="all">Todos (4)</button>
-  <button class="tab" data-filter="ativo">Ativos (2)</button>
-  <button class="tab" data-filter="atrasado">Atrasados (1)</button>
-  <button class="tab" data-filter="quitado">Quitados (1)</button>
-</div>
-
-
-  <!-- Lista -->
-  <section class="list">
-
-    <article class="list-item" data-status="ativo">
-      <div class="list-item__main">
-        <div class="list-item__title">
-          <strong>Maria Silva</strong>
-          <span class="badge badge--info">Ativo</span>
-        </div>
-        <div class="list-item__meta">
-          <span>R$ 5.000</span>
-          <span>3/10 parcelas</span>
-          <span>Vence: 10/05/2026</span>
-        </div>
+    <link rel="stylesheet" href="../../public/assets/css/base.css" />
+    <link rel="stylesheet" href="../../public/assets/css/topbar.css" />
+    <link rel="stylesheet" href="../../public/assets/css/buttons.css" />
+    <link rel="stylesheet" href="../../public/assets/css/forms.css" />
+    <link rel="stylesheet" href="../../public/assets/css/list.css" />
+    <link rel="stylesheet" href="../../public/assets/css/badges.css" />
+    <link rel="stylesheet" href="../../public/assets/css/tabs.css" />
+    <link rel="stylesheet" href="../../public/assets/css/modals.css" />
+    <link
+      rel="stylesheet"
+      href="../../public/assets/css/emprestimo-detalhes.css"
+    />
+    <link rel="stylesheet" href="../../public/assets/css/modal-pagamento.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__left">
+        <a class="brand" href="index.html">
+          <!-- ALTERAR DEPOIS -->
+          <span class="brand__logo">∞</span>
+          <span class="brand__name">GestorPro</span>
+        </a>
       </div>
 
-      <div class="list-item__actions">
-        <button class="linkbtn"
-                 type="button"
-                 data-modal-open="detalhesEmprestimo"
-                 data-cliente-nome="Maria Silva"
-                 data-cliente-telefone="(11) 99999-1234"
-                 data-valor="R$ 5.000"
-                 data-juros="10"
-                data-total-juros="R$ 5.500,00"
-                data-parcelas="3 / 10"
-                data-tipo-venc="Mensal"
-                data-status="Ativo"
-                data-criado-em="10/01/2026"
-        >👁️ Detalhes</button>
-        <button class="linkbtn" type="button">💳 Pagamento</button>
-      </div>
-    </article>
+      <nav class="topbar__nav">
+        <a class="navlink" href="index.html">Início</a>
+        <!-- ALTERAR DEPOIS -->
+        <a class="navlink" href="clientes.html">Clientes</a>
+        <!-- ALTERAR DEPOIS -->
+        <a
+          class="navlink <?= $activePage === 'emprestimos' ? 'is-active' : '' ?>"
+          href="emprestimos.html"
+          >Empréstimos</a
+        >
+        <a class="navlink" href="vencimentos.html">Vencimentos</a>
+        <!-- ALTERAR DEPOIS -->
+      </nav>
 
-    <article class="list-item" data-status="quitado">
-      <div class="list-item__main">
-        <div class="list-item__title">
-          <strong>Joao Santos</strong>
-          <span class="badge badge--success">Quitado</span>
+      <div class="topbar__right">
+        <button
+          class="btn btn--primary"
+          type="button"
+          data-modal-open="novoEmprestimo"
+          data-cliente-id="1"
+          data-cliente-nome="Maria Silva"
+        >
+          + Novo empréstimo
+        </button>
+      </div>
+    </header>
+
+    <main class="container">
+      <div class="page-row">
+        <div class="page-head">
+          <h1 class="page-title">Empréstimos</h1>
+          <p class="page-sub">4 empréstimos cadastrados</p>
         </div>
-        <div class="list-item__meta">
-          <span>R$ 2.000</span>
-          <span>8/8 parcelas</span>
-        </div>
+
+        <button
+          class="btn btn--primary"
+          type="button"
+          data-modal-open="novoEmprestimo"
+          data-cliente-id="1"
+          data-cliente-nome="Maria Silva"
+        >
+          + Novo empréstimo
+        </button>
       </div>
 
-      <div class="list-item__actions">
-        <button class="linkbtn" type="button">👁️ Detalhes</button>
-        <span class="status-dot status-dot--success" title="Quitado"></span>
-      </div>
-    </article>
-
-    <article class="list-item" data-status="ativo">
-      <div class="list-item__main">
-        <div class="list-item__title">
-          <strong>Henrique Bulhos</strong>
-          <span class="badge badge--info">Ativo</span>
-        </div>
-        <div class="list-item__meta">
-          <span>R$ 3.000</span>
-          <span>1/6 parcelas</span>
-          <span>Vence: 01/04/2026</span>
-        </div>
+      <!-- Tabs/Filtros -->
+      <div class="tabs" id="emprestimosTabs">
+        <button class="tab is-active" data-filter="all">Todos (4)</button>
+        <button class="tab" data-filter="ativo">Ativos (2)</button>
+        <button class="tab" data-filter="atrasado">Atrasados (1)</button>
+        <button class="tab" data-filter="quitado">Quitados (1)</button>
       </div>
 
-      <div class="list-item__actions">
-        <button class="linkbtn"
-                 type="button"
-                 data-modal-open="detalhesEmprestimo"
-                 data-cliente-nome="Maria Silva"
-                 data-cliente-telefone="(11) 99999-1234"
-                 data-valor="R$ 5.000"
-                 data-juros="10"
-                data-total-juros="R$ 5.500,00"
-                data-parcelas="3 / 10"
-                data-tipo-venc="Mensal"
-                data-status="Ativo"
-                data-criado-em="10/01/2026"
-        >👁️ Detalhes</button>
-        <button class="linkbtn" type="button">💳 Pagamento</button>
-      </div>
-    </article>
+      <!-- Lista -->
+      <section class="list">
+        <article class="list-item" data-status="ativo">
+          <div class="list-item__main">
+            <div class="list-item__title">
+              <strong>Maria Silva</strong>
+              <span class="badge badge--info">Ativo</span>
+            </div>
+            <div class="list-item__meta">
+              <span>R$ 5.000</span>
+              <span>3/10 parcelas</span>
+              <span>Vence: 10/05/2026</span>
+            </div>
+          </div>
 
-    <article class="list-item" data-status="atrasado">
-      <div class="list-item__main">
-        <div class="list-item__title">
-          <strong>Pedro Costa</strong>
-          <span class="badge badge--danger">Atrasado</span>
-        </div>
-        <div class="list-item__meta">
-          <span>R$ 1.500</span>
-          <span>2/5 parcelas</span>
-          <span>Vence: 04/12/2025</span>
-        </div>
-      </div>
+          <div class="list-item__actions">
+            <button
+              class="linkbtn"
+              type="button"
+              data-modal-open="detalhesEmprestimo"
+              data-cliente-nome="Maria Silva"
+              data-cliente-telefone="(11) 99999-1234"
+              data-valor="R$ 5.000"
+              data-juros="10"
+              data-total-juros="R$ 5.500,00"
+              data-parcelas="3 / 10"
+              data-tipo-venc="Mensal"
+              data-status="Ativo"
+              data-criado-em="10/01/2026"
+            >
+              👁️ Detalhes
+            </button>
+            <button
+              class="linkbtn"
+              type="button"
+              data-modal-open="lancarPagamento"
+              data-cliente-nome="Maria Silva"
+              data-emprestimo-info="R$ 5.000 - 3/10 parcelas pagas"
+              data-tipo-padrao="Parcela"
+              data-valor-padrao="550"
+              data-data-padrao="2026-02-09"
+            >
+              💳 Pagamento
+            </button>
+          </div>
+        </article>
 
-      <div class="list-item__actions">
-        <button class="linkbtn"
-                 type="button"
-                 data-modal-open="detalhesEmprestimo"
-                 data-cliente-nome="Maria Silva"
-                 data-cliente-telefone="(11) 99999-1234"
-                 data-valor="R$ 5.000"
-                 data-juros="10"
-                data-total-juros="R$ 5.500,00"
-                data-parcelas="3 / 10"
-                data-tipo-venc="Mensal"
-                data-status="Ativo"
-                data-criado-em="10/01/2026"
-        >👁️ Detalhes</button>
+        <article class="list-item" data-status="quitado">
+          <div class="list-item__main">
+            <div class="list-item__title">
+              <strong>Joao Santos</strong>
+              <span class="badge badge--success">Quitado</span>
+            </div>
+            <div class="list-item__meta">
+              <span>R$ 2.000</span>
+              <span>8/8 parcelas</span>
+            </div>
+          </div>
 
-        <button class="linkbtn" type="button">💳 Pagamento</button>
-      </div>
-    </article>
+          <div class="list-item__actions">
+            <button class="linkbtn" type="button">👁️ Detalhes</button>
+            <span class="status-dot status-dot--success" title="Quitado"></span>
+          </div>
+        </article>
 
-  </section>
+        <article class="list-item" data-status="ativo">
+          <div class="list-item__main">
+            <div class="list-item__title">
+              <strong>Henrique Bulhos</strong>
+              <span class="badge badge--info">Ativo</span>
+            </div>
+            <div class="list-item__meta">
+              <span>R$ 3.000</span>
+              <span>1/6 parcelas</span>
+              <span>Vence: 01/04/2026</span>
+            </div>
+          </div>
 
-</main>
-<script src="../assets/js/emprestimos.js"></script>
-<script src="../assets/js/modals.js"></script>
-</body>
+          <div class="list-item__actions">
+            <button
+              class="linkbtn"
+              type="button"
+              data-modal-open="detalhesEmprestimo"
+              data-cliente-nome="Maria Silva"
+              data-cliente-telefone="(11) 99999-1234"
+              data-valor="R$ 5.000"
+              data-juros="10"
+              data-total-juros="R$ 5.500,00"
+              data-parcelas="3 / 10"
+              data-tipo-venc="Mensal"
+              data-status="Ativo"
+              data-criado-em="10/01/2026"
+            >
+              👁️ Detalhes
+            </button>
+            <button
+              class="linkbtn"
+              type="button"
+              data-modal-open="lancarPagamento"
+              data-cliente-nome="Maria Silva"
+              data-emprestimo-info="R$ 5.000 - 3/10 parcelas pagas"
+              data-tipo-padrao="Parcela"
+              data-valor-padrao="550"
+              data-data-padrao="2026-02-09"
+            >
+              💳 Pagamento
+            </button>
+          </div>
+        </article>
+
+        <article class="list-item" data-status="atrasado">
+          <div class="list-item__main">
+            <div class="list-item__title">
+              <strong>Pedro Costa</strong>
+              <span class="badge badge--danger">Atrasado</span>
+            </div>
+            <div class="list-item__meta">
+              <span>R$ 1.500</span>
+              <span>2/5 parcelas</span>
+              <span>Vence: 04/12/2025</span>
+            </div>
+          </div>
+
+          <div class="list-item__actions">
+            <button
+              class="linkbtn"
+              type="button"
+              data-modal-open="detalhesEmprestimo"
+              data-cliente-nome="Maria Silva"
+              data-cliente-telefone="(11) 99999-1234"
+              data-valor="R$ 5.000"
+              data-juros="10"
+              data-total-juros="R$ 5.500,00"
+              data-parcelas="3 / 10"
+              data-tipo-venc="Mensal"
+              data-status="Ativo"
+              data-criado-em="10/01/2026"
+            >
+              👁️ Detalhes
+            </button>
+            <button
+              class="linkbtn"
+              type="button"
+              data-modal-open="lancarPagamento"
+              data-cliente-nome="Maria Silva"
+              data-emprestimo-info="R$ 5.000 - 3/10 parcelas pagas"
+              data-tipo-padrao="Parcela"
+              data-valor-padrao="550"
+              data-data-padrao="2026-02-09"
+            >
+              💳 Pagamento
+            </button>
+          </div>
+        </article>
+      </section>
+    </main>
+    <script src="../../public/assets/js/emprestimos.js"></script>
+    <script src="../../public/assets/js/modals.js"></script>
+  </body>
 </html>

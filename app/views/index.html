@@ -1,97 +1,121 @@
 <?php
   $activePage = 'inicio';
 ?>
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt-br">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>GestorPro • Início</title>
-  <link rel="stylesheet" href="../assets/css/base.css" />
-  <link rel="stylesheet" href="../assets/css/buttons.css" />
-  <link rel="stylesheet" href="../assets/css/cards.css" />
-  <link rel="stylesheet" href="../assets/css/forms.css" />
-  <link rel="stylesheet" href="../assets/css/modals.css" />
-  <link rel="stylesheet" href="../assets/css/topbar.css">
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GestorPro • Início</title>
+    <link rel="stylesheet" href="../../public/assets/css/base.css" />
+    <link rel="stylesheet" href="../../public/assets/css/buttons.css" />
+    <link rel="stylesheet" href="../../public/assets/css/cards.css" />
+    <link rel="stylesheet" href="../../public/assets/css/forms.css" />
+    <link rel="stylesheet" href="../../public/assets/css/modals.css" />
+    <link rel="stylesheet" href="../../public/assets/css/topbar.css" />
+    <link rel="stylesheet" href="../../public/assets/css/modal-pagamento.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__left">
+        <a class="brand" href="index.html">
+          <span class="brand__logo">∞</span>
+          <span class="brand__name">GestorPro</span>
+        </a>
+      </div>
 
-<header class="topbar">
-  <div class="topbar__left">
-    <a class="brand" href="index.php">
-      <span class="brand__logo">∞</span>
-      <span class="brand__name">GestorPro</span>
-    </a>
-  </div>
+      <nav class="topbar__nav">
+        <a
+          class="navlink <?= $activePage === 'inicio' ? 'is-active' : '' ?>"
+          href="index.html"
+          >Início</a
+        >
+        <a class="navlink" href="clientes.html">Clientes</a>
+        <!-- ALTERAR DEPOIS -->
+        <a class="navlink" href="emprestimos.html">Empréstimos</a>
+        <!-- ALTERAR DEPOIS -->
+        <a class="navlink" href="vencimentos.html">Vencimentos</a>
+        <!-- ALTERAR DEPOIS -->
+      </nav>
 
-  <nav class="topbar__nav">
-    <a class="navlink <?= $activePage === 'inicio' ? 'is-active' : '' ?>" href="index.html">Início</a>
-    <a class="navlink" href="clientes.html">Clientes</a> <!-- ALTERAR DEPOIS -->
-    <a class="navlink" href="emprestimos.html">Empréstimos</a> <!-- ALTERAR DEPOIS -->
-    <a class="navlink" href="vencimentos.html">Vencimentos</a> <!-- ALTERAR DEPOIS -->
-  </nav>
+      <div class="topbar__right">
+        <button
+          class="btn btn--primary"
+          type="button"
+          data-modal-open="novoEmprestimo"
+          data-cliente-id="1"
+          data-cliente-nome="Maria Silva"
+        >
+          + Novo empréstimo
+        </button>
+      </div>
+    </header>
 
-  <div class="topbar__right">
-    <a class="btn btn--primary" href="emprestimos.php">+ Novo empréstimo</a>
-  </div>
-</header>
+    <main class="container">
+      <section class="page-head">
+        <h1 class="page-title">Bem-vindo ao GestorPro</h1>
+        <p class="page-sub">
+          Gerencie seus clientes e empréstimos de forma rápida.
+        </p>
+      </section>
 
-<main class="container">
-  <section class="page-head">
-    <h1 class="page-title">Bem-vindo ao GestorPro</h1>
-    <p class="page-sub">Gerencie seus clientes e empréstimos de forma rápida.</p>
-  </section>
+      <!-- Cards (no futuro o backend troca os números) -->
+      <section class="grid grid--4 gap-12">
+        <article class="card card--stat">
+          <div class="stat__label">Clientes</div>
+          <div class="stat__value">...</div>
+        </article>
 
-  <!-- Cards (no futuro o backend troca os números) -->
-  <section class="grid grid--4 gap-12">
-    <article class="card card--stat">
-      <div class="stat__label">Clientes</div>
-      <div class="stat__value">...</div>
-    </article>
+        <article class="card card--stat">
+          <div class="stat__label">Empréstimos ativos</div>
+          <div class="stat__value">...</div>
+        </article>
 
-    <article class="card card--stat">
-      <div class="stat__label">Empréstimos ativos</div>
-      <div class="stat__value">...</div>
-    </article>
+        <article class="card card--stat">
+          <div class="stat__label">Vencem hoje</div>
+          <div class="stat__value">...</div>
+        </article>
 
-    <article class="card card--stat">
-      <div class="stat__label">Vencem hoje</div>
-      <div class="stat__value">...</div>
-    </article>
+        <article class="card card--stat">
+          <div class="stat__label stat__label--danger">Atrasados</div>
+          <div class="stat__value stat__value--danger">...</div>
+        </article>
+      </section>
 
-    <article class="card card--stat">
-      <div class="stat__label stat__label--danger">Atrasados</div>
-      <div class="stat__value stat__value--danger">...</div>
-    </article>
-  </section>
+      <section class="section">
+        <h2 class="section-title">Ações rápidas</h2>
 
-  <section class="section">
-    <h2 class="section-title">Ações rápidas</h2>
+        <div class="grid grid--4 gap-16">
+          <a class="action-card" href="clientes.html">
+            <div class="action-card__icon">👥</div>
+            <div class="action-card__title">Clientes</div>
+          </a>
 
-    <div class="grid grid--4 gap-16">
-      <a class="action-card" href="clientes.php">
-        <div class="action-card__icon">👥</div>
-        <div class="action-card__title">Clientes</div>
-      </a>
+          <a class="action-card" href="emprestimos.html">
+            <div class="action-card__icon">💸</div>
+            <div class="action-card__title">Empréstimos</div>
+          </a>
 
-      <a class="action-card" href="emprestimos.php">
-        <div class="action-card__icon">💸</div>
-        <div class="action-card__title">Empréstimos</div>
-      </a>
+          <a class="action-card" href="vencimentos.html">
+            <div class="action-card__icon">📅</div>
+            <div class="action-card__title">Vencimentos</div>
+          </a>
 
-      <a class="action-card" href="vencimentos.php">
-        <div class="action-card__icon">📅</div>
-        <div class="action-card__title">Vencimentos</div>
-      </a>
+          <a class="action-card action-card--primary" href="emprestimos.html">
+            <button
+              class="btn btn--primary"
+              type="button"
+              data-modal-open="novoEmprestimo"
+              data-cliente-id="1"
+              data-cliente-nome="Maria Silva"
+            >
+              + Novo empréstimo
+            </button>
+          </a>
+        </div>
+      </section>
+    </main>
 
-      <a class="action-card action-card--primary" href="emprestimos.php">
-        <div class="action-card__icon action-card__icon--white">＋</div>
-        <div class="action-card__title action-card__title--white">Novo empréstimo</div>
-      </a>
-    </div>
-  </section>
-</main>
-
-<script src="../assets/js/modals.js"></script>
-</body>
+    <script src="../../public/assets/js/modals.js"></script>
+  </body>
 </html>

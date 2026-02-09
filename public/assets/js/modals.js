@@ -301,6 +301,171 @@
     document.body.appendChild(modal);
   }
 
+  function injectModalLancamentoPagamento() {
+    if (qs("#modalLancarPagamento")) return;
+
+    const modal = document.createElement("section");
+    modal.className = "modal";
+    modal.id = "modalLancarPagamento";
+    modal.setAttribute("aria-hidden", "true");
+
+    modal.innerHTML = `
+    <div class="modal__dialog">
+      <header class="modal__header">
+        <div>
+          <h3 class="modal__title">Lançar pagamento</h3>
+          <p class="modal__subtitle">Registre o pagamento recebido.</p>
+        </div>
+        <button class="iconbtn" type="button" data-modal-close="modalLancarPagamento">×</button>
+      </header>
+
+      <form class="modal__body" id="formLancarPagamento" action="#" method="post">
+        <div class="form-grid">
+
+          <div class="field form-span-2">
+            <label>Cliente</label>
+            <input name="cliente_nome" data-pay="cliente_nome" readonly value="—" />
+          </div>
+
+          <div class="field form-span-2">
+            <label>Empréstimo</label>
+            <input name="emprestimo_info" data-pay="emprestimo_info" readonly value="—" />
+          </div>
+
+          <div class="field form-span-2">
+            <label>Tipo de pagamento</label>
+            <select name="tipo_pagamento" data-pay="tipo_pagamento" required>
+              <option value="Parcela">Parcela</option>
+              <option value="Apenas juros">Apenas juros</option>
+              <option value="Quitação">Valor integral (quitação)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Valor pago (R$)</label>
+            <input name="valor_pago" data-pay="valor_pago" inputmode="decimal" placeholder="0,00" required />
+          </div>
+
+          <div class="field">
+            <label>Data do pagamento</label>
+            <input name="data_pagamento" data-pay="data_pagamento" type="date" required />
+          </div>
+
+          <div class="field form-span-2">
+            <label>Observação (opcional)</label>
+            <textarea name="observacao" data-pay="observacao" rows="4" placeholder="Alguma anotação..."></textarea>
+          </div>
+
+        </div>
+
+        <footer class="modal__footer modal__footer--end">
+          <button class="btn" type="button" data-modal-close="modalLancarPagamento">Cancelar</button>
+          <button class="btn btn--primary" type="submit">Confirmar pagamento</button>
+        </footer>
+      </form>
+    </div>
+  `;
+
+    document.body.appendChild(modal);
+
+    // front-only: não recarrega
+    const form = qs("#formLancarPagamento");
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+
+      // aqui depois você troca por POST/fetch para PHP
+      // ou deixa o PHP receber normal removendo o preventDefault.
+      Modal.close("modalLancarPagamento");
+    });
+
+  }
+  function injectModalNovoEmprestimo() {
+    if (qs("#modalNovoEmprestimo")) return;
+
+    const modal = document.createElement("section");
+    modal.className = "modal";
+    modal.id = "modalNovoEmprestimo";
+    modal.setAttribute("aria-hidden", "true");
+
+    modal.innerHTML = `
+  <div class="modal__dialog">
+    <header class="modal__header">
+      <div>
+        <h3 class="modal__title">Novo empréstimo</h3>
+        <p class="modal__subtitle">Preencha os dados do empréstimo.</p>
+      </div>
+      <button class="iconbtn" type="button" data-modal-close="modalNovoEmprestimo">×</button>
+    </header>
+
+    <form class="modal__body" id="formNovoEmprestimo" action="#" method="post">
+      <div class="form-grid">
+
+        <div class="field form-span-2">
+          <label>Cliente</label>
+          <select name="cliente_id" data-loannew="cliente_id" required>
+            <option value="">Selecione o cliente</option>
+            <!-- depois você preenche via backend/JS -->
+            <option value="1">Maria Silva</option>
+            <option value="2">Pedro Costa</option>
+          </select>
+        </div>
+
+        <div class="field form-span-2">
+          <label>Data do empréstimo</label>
+          <input type="date" name="data_emprestimo" data-loannew="data_emprestimo" required />
+        </div>
+
+        <div class="field">
+          <label>Valor (R$)</label>
+          <input name="valor" data-loannew="valor" inputmode="decimal" placeholder="0,00" required />
+        </div>
+
+        <div class="field">
+          <label>Parcelas</label>
+          <input type="number" min="1" name="parcelas" data-loannew="parcelas" value="10" required />
+        </div>
+
+        <div class="field">
+          <label>Juros (%)</label>
+          <input type="number" min="0" step="0.01" name="juros" data-loannew="juros" value="10" required />
+        </div>
+
+        <div class="field form-span-2">
+          <label>Tipo de vencimento</label>
+          <select name="tipo_vencimento" data-loannew="tipo_vencimento" required>
+            <option value="Mensal">Mensal</option>
+            <option value="Semanal">Semanal</option>
+            <option value="Quinzenal">Quinzenal</option>
+          </select>
+        </div>
+
+        <div class="field form-span-2">
+          <label>Dia do mês</label>
+          <select name="dia_mes" data-loannew="dia_mes" required>
+            ${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">Dia ${i + 1}</option>`).join("")}
+          </select>
+        </div>
+
+      </div>
+
+      <footer class="modal__footer modal__footer--end">
+        <button class="btn" type="button" data-modal-close="modalNovoEmprestimo">Cancelar</button>
+        <button class="btn btn--primary" type="submit">Salvar empréstimo</button>
+      </footer>
+    </form>
+  </div>
+`;
+
+    document.body.appendChild(modal);
+
+    // front-only (igual os outros)
+    const form = qs("#formNovoEmprestimo");
+    form.addEventListener("submit", (e) => {
+      e.preventDefault();
+      Modal.close("modalNovoEmprestimo");
+    });
+  }
+
   function bindOpenClose() {
     document.addEventListener("click", (e) => {
       const open = e.target.closest("[data-modal-open]");
@@ -312,6 +477,8 @@
           novoCliente: "modalNovoCliente",
           detalhesCliente: "modalDetalhesCliente",
           detalhesEmprestimo: "modalDetalhesEmprestimo",
+          lancarPagamento: "modalLancarPagamento",
+          novoEmprestimo: "modalNovoEmprestimo",
         };
 
         // preencher dados ANTES de abrir
@@ -349,7 +516,7 @@
           }
         }
 
-          if (key === "detalhesEmprestimo") {
+        if (key === "detalhesEmprestimo") {
           const modal = document.getElementById("modalDetalhesEmprestimo");
           if (!modal) return;
 
@@ -378,7 +545,7 @@
             statusEl.classList.remove(
               "badge--info",
               "badge--success",
-              "badge--danger"
+              "badge--danger",
             );
             if (status.toLowerCase() === "quitado")
               statusEl.classList.add("badge--success");
@@ -394,8 +561,7 @@
 
           // Parcelas (lista)
           const list = modal.querySelector("#installmentsList");
-          list.innerHTML =
-     `<div class="installment-row">
+          list.innerHTML = `<div class="installment-row">
       <div class="inst-left">
         <span class="inst-dot inst-dot--ok"></span>
         <span class="inst-title">Parcela 1</span>
@@ -460,6 +626,68 @@
     </div>`;
         }
 
+        if (key === "lancarPagamento") {
+          const modal = document.getElementById("modalLancarPagamento");
+          if (!modal) return;
+
+          const setPay = (field, value) => {
+            const el = modal.querySelector(`[data-pay="${field}"]`);
+            if (!el) return;
+
+            if (
+              el.tagName === "INPUT" ||
+              el.tagName === "TEXTAREA" ||
+              el.tagName === "SELECT"
+            ) {
+              el.value = value ?? "";
+            } else {
+              el.textContent = value ?? "—";
+            }
+          };
+
+          setPay("cliente_nome", open.dataset.clienteNome || "—");
+          setPay("emprestimo_info", open.dataset.emprestimoInfo || "—");
+
+          // defaults (opcionais)
+          if (open.dataset.tipoPadrao)
+            setPay("tipo_pagamento", open.dataset.tipoPadrao);
+          if (open.dataset.valorPadrao)
+            setPay("valor_pago", open.dataset.valorPadrao);
+          if (open.dataset.dataPadrao)
+            setPay("data_pagamento", open.dataset.dataPadrao);
+        }
+
+        if (key === "novoEmprestimo") {
+          const modal = document.getElementById("modalNovoEmprestimo");
+          if (!modal) return;
+
+          const setLoanNew = (field, value) => {
+            const el = modal.querySelector(`[data-loannew="${field}"]`);
+            if (!el) return;
+            el.value = value ?? "";
+          };
+
+          // cliente pré-selecionado (se veio do botão)
+          if (open.dataset.clienteId)
+            setLoanNew("cliente_id", open.dataset.clienteId);
+
+          // data padrão = hoje (se não vier)
+          if (!open.dataset.dataEmprestimo) {
+            const hoje = new Date().toISOString().slice(0, 10);
+            setLoanNew("data_emprestimo", hoje);
+          } else {
+            setLoanNew("data_emprestimo", open.dataset.dataEmprestimo);
+          }
+
+          // defaults opcionais
+          if (open.dataset.parcelas)
+            setLoanNew("parcelas", open.dataset.parcelas);
+          if (open.dataset.juros) setLoanNew("juros", open.dataset.juros);
+          if (open.dataset.tipoVenc)
+            setLoanNew("tipo_vencimento", open.dataset.tipoVenc);
+          if (open.dataset.diaMes) setLoanNew("dia_mes", open.dataset.diaMes);
+        }
+
         Modal.open(map[key] || key);
       }
 
@@ -474,22 +702,29 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-  injectOverlay();
+    injectOverlay();
 
-  // Injeta modais SOMENTE se existirem gatilhos na página
-  if (document.querySelector('[data-modal-open="novoCliente"]')) {
-    injectModalNovoCliente();
-  }
+    // Injeta modais SOMENTE se existirem gatilhos na página
+    if (document.querySelector('[data-modal-open="novoCliente"]')) {
+      injectModalNovoCliente();
+    }
 
-  if (document.querySelector('[data-modal-open="detalhesCliente"]')) {
-    injectModalDetalhesCliente();
-  }
+    if (document.querySelector('[data-modal-open="detalhesCliente"]')) {
+      injectModalDetalhesCliente();
+    }
 
-  if (document.querySelector('[data-modal-open="detalhesEmprestimo"]')) {
-    injectModalDetalhesEmprestimo();
-  }
+    if (document.querySelector('[data-modal-open="detalhesEmprestimo"]')) {
+      injectModalDetalhesEmprestimo();
+    }
 
-  bindOpenClose();
-});
+    if (document.querySelector('[data-modal-open="lancarPagamento"]')) {
+      injectModalLancamentoPagamento();
+    }
 
-})(); // fecha o (function(){ ... })();
+    if (document.querySelector('[data-modal-open="novoEmprestimo"]')) {
+      injectModalNovoEmprestimo();
+    }
+
+    bindOpenClose();
+  });
+})();
