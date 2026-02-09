@@ -20,7 +20,6 @@ class Database
             ];
 
             return new PDO($dsn, self::$user, self::$pass, $opcoes);
-
         } catch (PDOException $e) {
             die('Erro na conexão com o banco: ' . $e->getMessage());
         }

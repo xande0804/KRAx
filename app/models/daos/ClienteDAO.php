@@ -25,7 +25,7 @@ class ClienteDAO
             ':telefone'   => $cliente->getTelefone(),
             ':endereco'   => $cliente->getEndereco(),
             ':profissao'  => $cliente->getProfissao(),
-            ':placa_carro'=> $cliente->getPlacaCarro(),
+            ':placa_carro' => $cliente->getPlacaCarro(),
             ':indicacao'  => $cliente->getIndicacao(),
         ]);
 
@@ -109,7 +109,7 @@ class ClienteDAO
             ':telefone'   => $cliente->getTelefone(),
             ':endereco'   => $cliente->getEndereco(),
             ':profissao'  => $cliente->getProfissao(),
-            ':placa_carro'=> $cliente->getPlacaCarro(),
+            ':placa_carro' => $cliente->getPlacaCarro(),
             ':indicacao'  => $cliente->getIndicacao(),
         ]);
     }
