@@ -1,0 +1,206 @@
+<?php
+  $activePage = 'clientes';
+?>
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GestorPro • Clientes</title>
+  <link rel="stylesheet" href="../assets/css/base.css" />
+  <link rel="stylesheet" href="../assets/css/buttons.css" />
+  <link rel="stylesheet" href="../assets/css/cards.css" />
+  <link rel="stylesheet" href="../assets/css/forms.css" />
+  <link rel="stylesheet" href="../assets/css/list.css" />
+  <link rel="stylesheet" href="../assets/css/modals.css" />
+  <link rel="stylesheet" href="../assets/css/page-clientes.css">
+  <link rel="stylesheet" href="../assets/css/topbar.css">
+  <link rel="stylesheet" href="../assets/css/cliente-detalhes.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar__left">
+    <a class="brand" href="index.php">
+      <span class="brand__logo">∞</span>
+      <span class="brand__name">GestorPro</span>
+    </a>
+  </div>
+
+  <nav class="topbar__nav">
+    <a class="navlink" href="index.html">Início</a> <!-- JAJA NOIS ALTERA -->
+    <a class="navlink <?= $activePage === 'clientes' ? 'is-active' : '' ?>" href="clientes.html">Clientes</a>
+    <a class="navlink" href="emprestimos.html">Empréstimos</a> <!-- ALTERAR DEPOIS -->
+    <a class="navlink" href="vencimentos.html">Vencimentos</a> <!-- ALTERAR DEPOIS -->
+  </nav>
+
+  <div class="topbar__right">
+    <a class="btn btn--primary" href="emprestimos.php">+ Novo empréstimo</a>
+  </div>
+</header>
+
+<main class="container">
+
+  <div class="page-row">
+    <div class="page-head">
+      <h1 class="page-title">Clientes</h1>
+      <p class="page-sub"><span id="clientesCount">4</span> clientes cadastrados</p>
+    </div>
+
+    <button class="btn btn--primary" type="button" data-modal-open="novoCliente">
+      + Novo cliente
+    </button>
+  </div>
+
+  <div class="searchbar">
+    <span class="searchbar__icon">🔎</span>
+    <input
+      id="clientesSearch"
+      class="input input--search"
+      type="text"
+      placeholder="Buscar por nome, CPF ou telefone..."
+      autocomplete="off"
+    />
+  </div>
+
+  <section class="list" id="clientesList">
+
+    <!-- Item 1 -->
+    <article class="list-item" data-filter="maria silva 11999991234 111.111.111-11">
+      <div class="list-item__main">
+        <div class="list-item__title">
+          <strong>Maria Silva</strong>
+          <span class="badge badge--active">Empréstimo ativo</span>
+        </div>
+        <div class="list-item__sub">(11) 99999-1234</div>
+      </div>
+
+      <div class="list-item__actions">
+        <button class="linkbtn" type="button"
+          data-modal-open="detalhesCliente"
+          data-cliente-id="1"
+          data-cliente-nome="Maria Silva"
+          data-cliente-cpf="111.111.111-11"
+          data-cliente-telefone="(11) 99999-1234"
+          data-cliente-endereco="Rua Exemplo, 10"
+          data-cliente-profissao="Vendedora"
+          data-cliente-placa="ABC-1D23"
+          data-cliente-indicacao="João"
+          data-emprestimo-ativo="1"
+        >👁️ Detalhes</button>
+
+        <button class="linkbtn" type="button"
+          data-modal-open="novoEmprestimo"
+          data-cliente-id="1"
+          data-cliente-nome="Maria Silva"
+        >💸 Empréstimo</button>
+      </div>
+    </article>
+
+    <!-- Item 2 -->
+    <article class="list-item" data-filter="joao santos 11888885678 222.222.222-22">
+      <div class="list-item__main">
+        <div class="list-item__title">
+          <strong>Joao Santos</strong>
+          <span class="badge badge--active">Empréstimo ativo</span>
+        </div>
+        <div class="list-item__sub">(11) 88888-5678</div>
+      </div>
+
+      <div class="list-item__actions">
+        <button class="linkbtn" type="button"
+          data-modal-open="detalhesCliente"
+          data-cliente-id="2"
+          data-cliente-nome="Joao Santos"
+          data-cliente-cpf="222.222.222-22"
+          data-cliente-telefone="(11) 88888-5678"
+          data-cliente-endereco="Av. Central, 200"
+          data-cliente-profissao="Motorista"
+          data-cliente-placa="DEF-4G56"
+          data-cliente-indicacao="—"
+          data-emprestimo-ativo="1"
+        >👁️ Detalhes</button>
+
+        <button class="linkbtn" type="button"
+          data-modal-open="novoEmprestimo"
+          data-cliente-id="2"
+          data-cliente-nome="Joao Santos"
+        >💸 Empréstimo</button>
+      </div>
+    </article>
+
+    <!-- Item 3 -->
+    <article class="list-item" data-filter="ana oliveira 21977779012 333.333.333-33">
+      <div class="list-item__main">
+        <div class="list-item__title">
+          <strong>Ana Oliveira</strong>
+          <span class="badge">Sem empréstimo</span>
+        </div>
+        <div class="list-item__sub">(21) 97777-9012</div>
+      </div>
+
+      <div class="list-item__actions">
+        <button class="linkbtn" type="button"
+          data-modal-open="detalhesCliente"
+          data-cliente-id="3"
+          data-cliente-nome="Ana Oliveira"
+          data-cliente-cpf="333.333.333-33"
+          data-cliente-telefone="(21) 97777-9012"
+          data-cliente-endereco="Rua A, 50"
+          data-cliente-profissao="Autônoma"
+          data-cliente-placa="—"
+          data-cliente-indicacao="—"
+          data-emprestimo-ativo="0"
+        >👁️ Detalhes</button>
+
+        <button class="linkbtn" type="button"
+          data-modal-open="novoEmprestimo"
+          data-cliente-id="3"
+          data-cliente-nome="Ana Oliveira"
+        >💸 Empréstimo</button>
+      </div>
+    </article>
+
+    <!-- Item 4 -->
+    <article class="list-item" data-filter="pedro costa 31966663456 444.444.444-44">
+      <div class="list-item__main">
+        <div class="list-item__title">
+          <strong>Pedro Costa</strong>
+          <span class="badge">Sem empréstimo</span>
+        </div>
+        <div class="list-item__sub">(31) 96666-3456</div>
+      </div>
+
+      <div class="list-item__actions">
+        <button
+            class="linkbtn"
+            type="button"
+            data-modal-open="detalhesCliente"
+            data-cliente-nome="Maria Silva"
+            data-cliente-telefone="(11) 99999-1234"
+            data-cliente-cpf="123.456.789-00"
+            data-cliente-endereco="Rua das Flores, 123"
+            data-cliente-profissao="Comerciante"
+            data-cliente-placa="ABC-1234"
+            data-cliente-indicacao="Carlos"
+            data-emprestimo-ativo="1"
+        >👁️ Detalhes</button>
+
+
+        <button class="linkbtn" type="button"
+          data-modal-open="novoEmprestimo"
+          data-cliente-id="4"
+          data-cliente-nome="Pedro Costa"
+        >💸 Empréstimo</button>
+      </div>
+    </article>
+
+  </section>
+</main>
+
+<!-- JS global + sistema de modais -->
+<script src="../assets/js/app.js"></script>
+<script src="../assets/js/modals.js"></script>
+<script src="../assets/js/clientes.js"></script>
+</body>
+</html>

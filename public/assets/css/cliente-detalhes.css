@@ -1,0 +1,138 @@
+/* ===== Modal Detalhes do Cliente ===== */
+
+.client-details{
+  display:flex;
+  flex-direction:column;
+  gap: 14px;
+}
+
+/* bloco de dados (topo) */
+.client-head{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap: 12px;
+}
+
+.client-head__left{
+  display:flex;
+  gap: 10px;
+  align-items:flex-start;
+}
+
+.client-avatar{
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--soft);
+  display:grid;
+  place-items:center;
+  font-weight: 900;
+  color: var(--primary);
+}
+
+.client-name{
+  margin:0;
+  font-size: 18px;
+  font-weight: 900;
+}
+.client-sub{
+  margin:4px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.client-info{
+  margin-top: 10px;
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+}
+
+.client-line{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.client-line strong{
+  color: var(--text);
+  font-weight: 900;
+}
+
+.icon-bullet{
+  width: 18px;
+  height: 18px;
+  display:grid;
+  place-items:center;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.client-actions{
+  display:flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+/* divisor */
+.hr{
+  width:100%;
+  height:1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* seção: empréstimo ativo */
+.section-title-row{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  font-weight: 900;
+}
+
+.loan-box{
+  border:1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background:#fff;
+}
+
+.loan-row-1{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.loan-meta{
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.loan-row-2{
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+.loan-actions{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* botão “Novo empréstimo” embaixo */
+.bottom-action{
+  display:flex;
+  justify-content:flex-start;
+}
+
+/* tamanho do modal maior (igual print) */
+.modal__dialog--xl{
+  max-width: 720px;
+}

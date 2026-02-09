@@ -1,0 +1,25 @@
+.tabs{
+  margin-top: 10px;
+  display:inline-flex;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  border: 1px solid var(--border);
+}
+
+.tab{
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 900;
+  color: var(--muted);
+}
+
+.tab.is-active{
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+}

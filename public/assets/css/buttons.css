@@ -1,0 +1,65 @@
+.btn{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  border:1px solid var(--border);
+  background:#fff;
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor:pointer;
+  transition: transform .12s, background .12s;
+  font-weight:800;
+}
+.btn:hover{ transform: translateY(-1px); }
+
+.btn--primary{
+  background: var(--primary);
+  border-color: var(--primary);
+  color:#fff;
+}
+.btn--primary:hover{ background: var(--primary-2); }
+
+.btn--ghost{
+  background:#eef2ff;
+  border-color:#dbeafe;
+  color: var(--primary);
+}
+
+/* botões “Detalhes / Empréstimo” da lista */
+.linkbtn{
+  border:0;
+  background: transparent;
+  cursor:pointer;
+  font-weight: 900;
+  color: var(--text);
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  padding: 8px 8px;
+  border-radius: 10px;
+}
+.linkbtn:hover{ background: var(--soft); }
+
+.btn--compact{
+  padding: 10px 14px;
+}
+
+.btn--secondary{
+  background:#eef2f7;
+  border-color:#e2e8f0;
+  color: var(--text);
+}
+.btn--secondary:hover{
+  background:#e8edf5;
+}
+
+.btn--danger{
+  background: var(--danger);
+  border-color: var(--danger);
+  color:#fff;
+}
+.btn--danger:hover{
+  filter: brightness(0.95);
+}
+

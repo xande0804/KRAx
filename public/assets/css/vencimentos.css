@@ -1,0 +1,87 @@
+/* estilos específicos da tela de vencimentos */
+
+.section-row{
+  margin-top: 12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+
+.section-row__left{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+
+.section-row__title{
+  font-size: 14px;
+  color: var(--danger);
+}
+
+.warn-icon{
+  width: 18px;
+  height: 18px;
+  display:inline-grid;
+  place-items:center;
+  color: var(--danger);
+}
+
+/* item de vencimento */
+.venc-item{
+  padding: 14px 14px;
+}
+
+.venc-left{
+  display:flex;
+  flex-direction:column;
+  gap: 6px;
+}
+
+.venc-title{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size: 15px;
+}
+
+.warn-dot{
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display:inline-grid;
+  place-items:center;
+  font-weight: 900;
+  color: #fff;
+  background: var(--danger);
+}
+
+.venc-meta{
+  display:flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.venc-right{
+  flex-shrink: 0;
+}
+
+/* botão mais “retinho” igual ao print */
+.btn--compact{
+  padding: 10px 14px;
+  border-radius: 12px;
+}
+
+/* responsivo */
+@media (max-width: 720px){
+  .venc-item{
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .venc-right{
+    width: 100%;
+    display:flex;
+    justify-content:flex-end;
+  }
+}

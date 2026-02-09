@@ -1,0 +1,73 @@
+.card{
+  border:1px solid var(--border);
+  border-radius: 12px;
+  background:#fff;
+}
+
+.card--stat{
+  padding: 14px;
+  min-height: 72px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+}
+
+.stat__label{
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.stat__value{
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1;
+}
+.stat__label--danger{ color: var(--danger); }
+.stat__value--danger{ color: var(--danger); }
+
+/* Ações rápidas do dashboard */
+.action-card{
+  border:1px solid var(--border);
+  border-radius: 14px;
+  background:#fff;
+  padding: 18px 14px;
+  min-height: 110px;
+
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:10px;
+
+  transition: transform .12s, border-color .12s;
+}
+.action-card:hover{
+  transform: translateY(-2px);
+  border-color: #cbd5e1;
+}
+
+.action-card__icon{
+  font-size: 28px;
+  width: 54px;
+  height: 54px;
+  display:grid;
+  place-items:center;
+  border-radius: 16px;
+  background: var(--soft);
+  border:1px solid var(--border);
+}
+.action-card__title{
+  font-weight: 900;
+  font-size: 14px;
+}
+
+.action-card--primary{
+  background: var(--primary);
+  border-color: var(--primary);
+}
+.action-card__icon--white{
+  background: rgba(255,255,255,.18);
+  border-color: rgba(255,255,255,.28);
+  color:#fff;
+}
+.action-card__title--white{ color:#fff; }

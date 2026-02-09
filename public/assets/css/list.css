@@ -1,0 +1,69 @@
+.list{
+  margin-top: 14px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+.list-item{
+  border:1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  background:#fff;
+}
+
+.list-item__title{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-size: 15px;
+}
+.list-item__sub{
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.list-item__actions{
+  display:flex;
+  align-items:center;
+  gap:16px;
+  flex-shrink:0;
+}
+
+/* badges */
+.badge{
+  display:inline-flex;
+  align-items:center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  background: #f1f5f9;
+  color: #334155;
+  border:1px solid var(--border);
+}
+.badge--active{
+  background: #e0f2fe;
+  border-color: #bae6fd;
+  color: #0369a1;
+}
+
+@media (max-width: 720px){
+  .list-item{ flex-direction:column; align-items:flex-start; }
+  .list-item__actions{ width:100%; justify-content:flex-end; }
+}
+
+.list-item__meta{
+  margin-top: 6px;
+  display:flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+}
+

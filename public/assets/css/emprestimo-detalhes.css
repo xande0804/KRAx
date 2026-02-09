@@ -1,0 +1,182 @@
+/* ===== Modal Detalhes do Empréstimo ===== */
+
+.modal__dialog--xl{ max-width: 760px; }
+
+.loan-head{
+  border:1px solid var(--border);
+  background: var(--soft);
+  border-radius: 14px;
+  padding: 12px;
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+.loan-head__icon{
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  background: #eef2ff;
+  color: var(--primary);
+  display:grid;
+  place-items:center;
+  border: 1px solid #dbeafe;
+}
+.loan-head__name{
+  font-weight: 900;
+  margin: 0;
+}
+.loan-head__sub{
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* cards info (4 quadrados) */
+.loan-kpis{
+  display:grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.kpi{
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background:#fff;
+}
+.kpi__label{
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.kpi__value{
+  font-weight: 900;
+  font-size: 18px;
+}
+
+/* status row */
+.loan-status{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 6px 0 12px;
+}
+.loan-status strong{ color: var(--text); }
+
+/* actions row */
+.loan-actions-row{
+  display:flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+/* seção */
+.modal-section{
+  margin-top: 14px;
+}
+.modal-section__title{
+  font-weight: 900;
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+
+/* lista de parcelas (com scroll) */
+.installments{
+  border:1px solid var(--border);
+  border-radius: 14px;
+  overflow:hidden;
+  background:#fff;
+}
+.installments__scroll{
+  max-height: 230px;
+  overflow:auto;
+}
+.installment-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+.installment-row:first-child{ border-top:0; }
+
+.inst-left{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+}
+.inst-dot{
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid #cbd5e1;
+}
+.inst-dot--ok{
+  border-color: #22c55e;
+  background: #dcfce7;
+}
+.inst-title{
+  font-weight: 800;
+  font-size: 14px;
+}
+.inst-right{
+  display:flex;
+  align-items:center;
+  gap: 14px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.inst-value{
+  font-weight: 900;
+  color: var(--text);
+}
+
+/* histórico pagamentos */
+.pay-history{
+  border:1px solid var(--border);
+  border-radius: 14px;
+  overflow:hidden;
+  background:#fff;
+}
+.pay-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 12px;
+  border-top: 1px solid var(--border);
+}
+.pay-row:first-child{ border-top:0; }
+
+.pay-left{
+  display:flex;
+  flex-direction:column;
+  gap: 2px;
+}
+.pay-title{
+  font-weight: 800;
+  font-size: 14px;
+}
+.pay-sub{
+  color: var(--muted);
+  font-size: 12px;
+}
+.pay-right{
+  display:flex;
+  align-items:center;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.pay-value{
+  font-weight: 900;
+  color: #16a34a;
+}
+
+@media (max-width: 720px){
+  .loan-kpis{ grid-template-columns: 1fr; }
+}
