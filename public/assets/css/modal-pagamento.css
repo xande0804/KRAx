@@ -1,0 +1,48 @@
+/* assets/css/modal-pagamento.css */
+.modal__footer--end{
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+select{
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, #94a3b8 50%),
+                    linear-gradient(135deg, #94a3b8 50%, transparent 50%);
+  background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+}
+
+/* Textarea (Observação) igual aos inputs */
+.modal textarea,
+.field textarea {
+  width: 100%;
+  min-height: 110px;          /* deixa mais “usável” */
+  resize: vertical;           /* usuário pode aumentar, mas sem quebrar layout */
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  background: #fff;
+  font: inherit;
+  line-height: 1.35;
+  outline: none;
+  box-sizing: border-box;
+}
+
+/* Placeholder mais suave */
+.modal textarea::placeholder,
+.field textarea::placeholder {
+  color: #9ca3af;
+}
+
+/* Focus igual ao resto */
+.modal textarea:focus,
+.field textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+/* Se o teu grid estiver “segurando” a largura, força a coluna inteira */
+.field.form-span-2 textarea {
+  width: 100%;
+}
