@@ -654,6 +654,103 @@
 
   }
 
+  function injectModalEditarCliente() {
+    if (qs("#modalEditarCliente")) return;
+  
+    const modal = document.createElement("section");
+    modal.className = "modal";
+    modal.id = "modalEditarCliente";
+    modal.setAttribute("aria-hidden", "true");
+  
+    modal.innerHTML = `
+      <div class="modal__dialog">
+        <header class="modal__header">
+          <div>
+            <h3 class="modal__title">Editar cliente</h3>
+            <p class="modal__subtitle">Atualize os dados do cliente.</p>
+          </div>
+          <button class="iconbtn" type="button" data-modal-close="modalEditarCliente">×</button>
+        </header>
+  
+        <form class="modal__body" id="formEditarCliente" action="/KRAx/public/api.php?route=clientes/atualizar" method="post">
+          <input type="hidden" name="id" />
+  
+          <div class="form-grid">
+            <div class="field form-span-2">
+              <label>Nome *</label>
+              <input name="nome" required />
+            </div>
+  
+            <div class="field">
+              <label>CPF</label>
+              <input name="cpf" />
+            </div>
+  
+            <div class="field">
+              <label>Telefone</label>
+              <input name="telefone" />
+            </div>
+  
+            <div class="field form-span-2">
+              <label>Endereço</label>
+              <input name="endereco" />
+            </div>
+  
+            <div class="field">
+              <label>Profissão</label>
+              <input name="profissao" />
+            </div>
+  
+            <div class="field">
+              <label>Placa do carro</label>
+              <input name="placa_carro" />
+            </div>
+  
+            <div class="field form-span-2">
+              <label>Indicação</label>
+              <input name="indicacao" />
+            </div>
+          </div>
+  
+          <footer class="modal__footer modal__footer--end">
+            <button class="btn" type="button" data-modal-close="modalEditarCliente">Cancelar</button>
+            <button class="btn btn--primary" type="submit">Salvar alterações</button>
+          </footer>
+        </form>
+      </div>
+    `;
+  
+    document.body.appendChild(modal);
+  
+    const form = qs("#formEditarCliente");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+  
+      try {
+        const fd = new FormData(form);
+  
+        const res = await fetch("/KRAx/public/api.php?route=clientes/atualizar", {
+          method: "POST",
+          body: fd,
+        });
+  
+        const json = await res.json();
+  
+        if (!json.ok) {
+          onError(json.mensagem || "Erro ao atualizar cliente");
+          return;
+        }
+  
+        Modal.close("modalEditarCliente");
+        onSuccess("Cliente atualizado!", { reload: true });
+  
+      } catch (err) {
+        console.error(err);
+        onError("Erro de conexão com o servidor");
+      }
+    });
+  }
+
   function bindOpenClose() {
     document.addEventListener("click", async (e) => {
       const openEl = e.target.closest("[data-modal-open]");
@@ -1045,6 +1142,7 @@
     injectModalDetalhesEmprestimo();
     injectModalLancamentoPagamento();
     injectModalNovoEmprestimo();
+    injectModalEditarCliente();
 
     bindOpenClose();
   });
