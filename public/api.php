@@ -5,6 +5,7 @@ $route = $_GET['route'] ?? '';
 require_once __DIR__ . '/../app/controllers/ClienteController.php';
 require_once __DIR__ . '/../app/controllers/EmprestimoController.php';
 require_once __DIR__ . '/../app/controllers/PagamentoController.php';
+require_once __DIR__ . '/../app/controllers/DashboardController.php';
 
 
 
@@ -51,9 +52,13 @@ switch ($route) {
         break;
 
     case 'dashboard/resumo':
-    require_once __DIR__ . '/../app/controllers/DashboardController.php';
-    (new DashboardController())->resumo();
-    break;
+        (new DashboardController())->resumo();
+        break;
+
+    case 'emprestimos/por_cliente':
+        (new EmprestimoController())->porCliente();
+        break;
+
 
 
     default:

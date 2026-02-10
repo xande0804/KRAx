@@ -537,6 +537,7 @@
 
 
   }
+
   function injectModalNovoEmprestimo() {
     if (qs("#modalNovoEmprestimo")) return;
 
@@ -656,12 +657,12 @@
 
   function injectModalEditarCliente() {
     if (qs("#modalEditarCliente")) return;
-  
+
     const modal = document.createElement("section");
     modal.className = "modal";
     modal.id = "modalEditarCliente";
     modal.setAttribute("aria-hidden", "true");
-  
+
     modal.innerHTML = `
       <div class="modal__dialog">
         <header class="modal__header">
@@ -719,31 +720,31 @@
         </form>
       </div>
     `;
-  
+
     document.body.appendChild(modal);
-  
+
     const form = qs("#formEditarCliente");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-  
+
       try {
         const fd = new FormData(form);
-  
+
         const res = await fetch("/KRAx/public/api.php?route=clientes/atualizar", {
           method: "POST",
           body: fd,
         });
-  
+
         const json = await res.json();
-  
+
         if (!json.ok) {
           onError(json.mensagem || "Erro ao atualizar cliente");
           return;
         }
-  
+
         Modal.close("modalEditarCliente");
         onSuccess("Cliente atualizado!", { reload: true });
-  
+
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
@@ -753,6 +754,81 @@
 
   function bindOpenClose() {
     document.addEventListener("click", async (e) => {
+      const btnEdit = e.target.closest("#btnEditarCliente");
+      if (btnEdit) {
+        const modalDet = document.getElementById("modalDetalhesCliente");
+        const clienteId = btnEdit.dataset.clienteId || modalDet?.dataset.clienteId || "";
+        if (!clienteId) return;
+
+        try {
+          const res = await fetch(`/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`);
+          const json = await res.json();
+
+          if (!json.ok) {
+            onError(json.mensagem || "Erro ao buscar cliente");
+            return;
+          }
+
+          const c = json.dados;
+
+          const modalEdit = document.getElementById("modalEditarCliente");
+          const form = modalEdit.querySelector("#formEditarCliente");
+
+          form.querySelector('input[name="id"]').value = String(clienteId);
+          form.querySelector('input[name="nome"]').value = c.nome || "";
+          form.querySelector('input[name="cpf"]').value = c.cpf || "";
+          form.querySelector('input[name="telefone"]').value = c.telefone || "";
+          form.querySelector('input[name="endereco"]').value = c.endereco || "";
+          form.querySelector('input[name="profissao"]').value = c.profissao || "";
+          form.querySelector('input[name="placa_carro"]').value = c.placa_carro || "";
+          form.querySelector('input[name="indicacao"]').value = c.indicacao || "";
+
+          Modal.open("modalEditarCliente");
+        } catch (err) {
+          console.error(err);
+          onError("Erro de rede ao buscar cliente");
+        }
+
+        return;
+      }
+
+      const btnDel = e.target.closest("#btnExcluirCliente");
+      if (btnDel) {
+        const modalDet = document.getElementById("modalDetalhesCliente");
+        const clienteId = btnDel.dataset.clienteId || modalDet?.dataset.clienteId || "";
+        if (!clienteId) return;
+
+        const ok = confirm("Tem certeza que deseja excluir este cliente? Essa ação não pode ser desfeita.");
+        if (!ok) return;
+
+        try {
+          const fd = new FormData();
+          fd.append("id", String(clienteId)); // se seu backend usa POST id
+
+          const res = await fetch(`/KRAx/public/api.php?route=clientes/excluir`, {
+            method: "POST",
+            body: fd,
+          });
+
+          const json = await res.json();
+
+          if (!json.ok) {
+            onError(json.mensagem || "Erro ao excluir cliente");
+            return;
+          }
+
+          Modal.closeAll();
+          onSuccess("Cliente excluído!", { reload: true });
+
+        } catch (err) {
+          console.error(err);
+          onError("Erro de conexão ao excluir");
+        }
+
+        return;
+      }
+
+
       const openEl = e.target.closest("[data-modal-open]");
       const closeEl = e.target.closest("[data-modal-close]");
 
@@ -805,8 +881,43 @@
           // esconde empréstimo enquanto carrega
           const loanBox = modal.querySelector("#loanBox");
           const noLoan = modal.querySelector("#noLoan");
-          if (loanBox) loanBox.style.display = "none";
-          if (noLoan) noLoan.style.display = "none";
+          // carrega empréstimos do cliente
+          try {
+            const r2 = await fetch(`/KRAx/public/api.php?route=emprestimos/por_cliente&cliente_id=${clienteId}`);
+            const j2 = await r2.json();
+
+            if (!j2.ok || !(j2.dados || []).length) {
+              if (loanBox) loanBox.style.display = "none";
+              if (noLoan) {
+                noLoan.style.display = "";
+                noLoan.textContent = "Este cliente não possui empréstimo ativo.";
+              }
+            } else {
+              // pega o primeiro (está ordenado desc, então é o mais recente)
+              const e0 = j2.dados[0];
+
+              const setLoan = (field, value) => {
+                const el = modal.querySelector(`[data-fill="${field}"]`);
+                if (el) el.textContent = value ?? "—";
+              };
+
+              setLoan("loan_status", e0.status || "—");
+              setLoan("loan_valor", `R$ ${e0.valor_principal}`);
+              setLoan("loan_parcelas", e0.parcelas || "—");
+              setLoan("loan_venc", e0.proximo_vencimento || "—");
+
+              if (loanBox) loanBox.style.display = "";
+              if (noLoan) noLoan.style.display = "none";
+            }
+          } catch (err2) {
+            console.error(err2);
+            if (loanBox) loanBox.style.display = "none";
+            if (noLoan) {
+              noLoan.style.display = "";
+              noLoan.textContent = "Não foi possível carregar os empréstimos deste cliente.";
+            }
+          }
+
 
           try {
             const res = await fetch(`/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`);

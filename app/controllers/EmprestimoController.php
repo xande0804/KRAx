@@ -186,6 +186,34 @@ class EmprestimoController
         }
     }
 
+    public function porCliente(): void
+    {
+        try {
+            $clienteId = isset($_GET['cliente_id']) ? (int)$_GET['cliente_id'] : 0;
+            if ($clienteId <= 0) throw new InvalidArgumentException('cliente_id inválido.');
+
+            $dao = new EmprestimoDAO();
+            $lista = $dao->listarPorCliente($clienteId);
+
+            $saida = [];
+            foreach ($lista as $row) {
+                $saida[] = [
+                    'emprestimo_id' => $row['id'],
+                    'cliente_id' => $row['cliente_id'],
+                    'cliente_nome' => $row['cliente_nome'],
+                    'valor_principal' => $row['valor_principal'],
+                    'parcelas' => $row['parcelas_pagas'] . '/' . $row['quantidade_parcelas'],
+                    'proximo_vencimento' => $row['proximo_vencimento'],
+                    'status' => $row['status'],
+                ];
+            }
+
+            $this->responderJson(true, 'Empréstimos do cliente', $saida);
+        } catch (Exception $e) {
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
     private function responderJson(bool $ok, string $mensagem, $dados = null): void
     {
         header('Content-Type: application/json');

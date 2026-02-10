@@ -145,4 +145,30 @@ class EmprestimoDAO
         return (int) $stmt->fetchColumn();
     }
 
+    public function ListarPorCliente(int $clienteId): array
+    {
+        $pdo = Database::conectar();
+
+        $sql = "
+      SELECT 
+        e.id,
+        e.cliente_id,
+        c.nome AS cliente_nome,
+        e.valor_principal,
+        e.quantidade_parcelas,
+        e.status,
+        COALESCE(SUM(CASE WHEN p.status = 'PAGA' THEN 1 ELSE 0 END), 0) AS parcelas_pagas,
+        MIN(CASE WHEN p.status = 'ABERTA' THEN p.data_vencimento ELSE NULL END) AS proximo_vencimento
+      FROM emprestimos e
+      INNER JOIN clientes c ON c.id = e.cliente_id
+      LEFT JOIN parcelas p ON p.emprestimo_id = e.id
+      WHERE e.cliente_id = :cliente_id
+      GROUP BY e.id, e.cliente_id, c.nome, e.valor_principal, e.quantidade_parcelas, e.status
+      ORDER BY e.id DESC
+    ";
+
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([':cliente_id' => $clienteId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }

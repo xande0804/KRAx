@@ -66,7 +66,6 @@ class ClienteController
         }
     }
 
-
     public function detalhes(): void
     {
         try {
