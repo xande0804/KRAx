@@ -36,7 +36,7 @@
     const {
       redirectTo = null, // ex: "emprestimos.html"
       reload = true,
-      delay = 900
+      delay = 900,
     } = opts;
 
     setTimeout(() => {
@@ -51,7 +51,6 @@
   function onError(msg) {
     toast(msg || "Ocorreu um erro.", "error", 2600);
   }
-
 
   const Modal = {
     open(id) {
@@ -210,7 +209,10 @@
           Modal.closeAll();
 
           // garante que o modal exista (se sua injeção depende de gatilho)
-          if (!document.getElementById("modalNovoEmprestimo") && typeof injectModalNovoEmprestimo === "function") {
+          if (
+            !document.getElementById("modalNovoEmprestimo") &&
+            typeof injectModalNovoEmprestimo === "function"
+          ) {
             injectModalNovoEmprestimo();
           }
 
@@ -224,7 +226,9 @@
             const modalEmp = document.getElementById("modalNovoEmprestimo");
             if (!modalEmp) return;
 
-            const selectCliente = modalEmp.querySelector('select[name="cliente_id"]');
+            const selectCliente = modalEmp.querySelector(
+              'select[name="cliente_id"]',
+            );
             if (selectCliente && novoClienteId) {
               selectCliente.innerHTML = `
                 <option value="">Selecione o cliente</option>
@@ -237,17 +241,16 @@
               selectCliente.dataset.locked = "1";
             }
 
-            const inputData = modalEmp.querySelector('input[name="data_emprestimo"]');
+            const inputData = modalEmp.querySelector(
+              'input[name="data_emprestimo"]',
+            );
             if (inputData && !inputData.value) {
               inputData.value = new Date().toISOString().slice(0, 10);
             }
           }, 0);
-
         } else {
           onSuccess("Cliente cadastrado!", { reload: true });
         }
-
-
       } catch (err) {
         console.error(err);
         onSuccess("Erro de conexão com o servidor");
@@ -260,7 +263,6 @@
       abrirNovoEmprestimoDepois = true;
       form.requestSubmit(); // dispara o submit acima
     });
-
   }
 
   function injectModalDetalhesCliente() {
@@ -455,6 +457,9 @@
       </header>
 
       <form class="modal__body" id="formLancarPagamento" action="#" method="post">
+      <input type="hidden" name="emprestimo_id" data-pay="emprestimo_id" />
+      <input type="hidden" name="parcela_id" data-pay="parcela_id" />
+
         <div class="form-grid">
 
           <div class="field form-span-2">
@@ -470,10 +475,12 @@
           <div class="field form-span-2">
             <label>Tipo de pagamento</label>
             <select name="tipo_pagamento" data-pay="tipo_pagamento" required>
-              <option value="Parcela">Parcela</option>
-              <option value="Apenas juros">Apenas juros</option>
-              <option value="Quitação">Valor integral (quitação)</option>
-            </select>
+  <option value="PARCELA">Parcela</option>
+  <option value="JUROS">Apenas juros</option>
+  <option value="INTEGRAL">Valor integral (quitação)</option>
+  <option value="EXTRA">Multa</option>
+</select>
+
           </div>
 
           <div class="field">
@@ -512,10 +519,13 @@
         const fd = new FormData(form);
 
         // AJUSTE a rota se a sua for diferente
-        const res = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
-          method: "POST",
-          body: fd,
-        });
+        const res = await fetch(
+          "/KRAx/public/api.php?route=pagamentos/lancar",
+          {
+            method: "POST",
+            body: fd,
+          },
+        );
 
         const json = await res.json();
 
@@ -528,14 +538,11 @@
         form.reset();
 
         onSuccess("Pagamento lançado!", { reload: true });
-
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
       }
     });
-
-
   }
 
   function injectModalNovoEmprestimo() {
@@ -624,10 +631,13 @@
       try {
         const fd = new FormData(form);
 
-        const res = await fetch("/KRAx/public/api.php?route=emprestimos/criar", {
-          method: "POST",
-          body: fd,
-        });
+        const res = await fetch(
+          "/KRAx/public/api.php?route=emprestimos/criar",
+          {
+            method: "POST",
+            body: fd,
+          },
+        );
 
         const json = await res.json();
 
@@ -642,17 +652,13 @@
         // vai pra página de empréstimos depois de criar
         onSuccess("Empréstimo criado!", {
           redirectTo: "emprestimos.html",
-          reload: false
+          reload: false,
         });
-
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
       }
     });
-
-
-
   }
 
   function injectModalEditarCliente() {
@@ -744,7 +750,6 @@
 
         Modal.close("modalEditarCliente");
         onSuccess("Cliente atualizado!", { reload: true });
-
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
@@ -920,7 +925,9 @@
 
 
           try {
-            const res = await fetch(`/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`);
+            const res = await fetch(
+              `/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`,
+            );
             const json = await res.json();
 
             if (!json.ok) {
@@ -995,14 +1002,12 @@
             // abre modal
             Modal.open("modalDetalhesCliente");
             return;
-
           } catch (err) {
             console.error(err);
             onError("Erro de rede ao buscar cliente");
             return;
           }
         }
-
 
         // -------------------------
         // DETALHES EMPRÉSTIMO
@@ -1033,9 +1038,15 @@
             statusEl.textContent = status;
 
             // cores do badge
-            statusEl.classList.remove("badge--info", "badge--success", "badge--danger");
-            if (status.toLowerCase() === "quitado") statusEl.classList.add("badge--success");
-            else if (status.toLowerCase() === "atrasado") statusEl.classList.add("badge--danger");
+            statusEl.classList.remove(
+              "badge--info",
+              "badge--success",
+              "badge--danger",
+            );
+            if (status.toLowerCase() === "quitado")
+              statusEl.classList.add("badge--success");
+            else if (status.toLowerCase() === "atrasado")
+              statusEl.classList.add("badge--danger");
             else statusEl.classList.add("badge--info");
           }
 
@@ -1143,9 +1154,16 @@
           setPay("cliente_nome", openEl.dataset.clienteNome || "—");
           setPay("emprestimo_info", openEl.dataset.emprestimoInfo || "—");
 
-          if (openEl.dataset.tipoPadrao) setPay("tipo_pagamento", openEl.dataset.tipoPadrao);
-          if (openEl.dataset.valorPadrao) setPay("valor_pago", openEl.dataset.valorPadrao);
-          if (openEl.dataset.dataPadrao) setPay("data_pagamento", openEl.dataset.dataPadrao);
+          setPay("emprestimo_id", openEl.dataset.emprestimoId || "");
+
+          if (openEl.dataset.tipoPadrao)
+            setPay("tipo_pagamento", openEl.dataset.tipoPadrao);
+          if (openEl.dataset.valorPadrao)
+            setPay("valor_pago", openEl.dataset.valorPadrao);
+          if (openEl.dataset.dataPadrao)
+            setPay("data_pagamento", openEl.dataset.dataPadrao);
+
+          
 
           Modal.open("modalLancarPagamento");
           return;
@@ -1158,7 +1176,9 @@
           const modal = document.getElementById("modalNovoEmprestimo");
           if (!modal) return;
 
-          const selectCliente = modal.querySelector('select[name="cliente_id"]');
+          const selectCliente = modal.querySelector(
+            'select[name="cliente_id"]',
+          );
           if (!selectCliente) return;
 
           const clienteId = openEl.dataset.clienteId || "";
@@ -1166,7 +1186,9 @@
 
           if (clienteId) {
             // 1) garante que exista a option do cliente com o nome certo
-            let opt = selectCliente.querySelector(`option[value="${clienteId}"]`);
+            let opt = selectCliente.querySelector(
+              `option[value="${clienteId}"]`,
+            );
             if (!opt) {
               opt = document.createElement("option");
               opt.value = clienteId;
@@ -1203,7 +1225,9 @@
 
             // 3) carrega clientes do backend pra preencher o select
             try {
-              const res = await fetch(`/KRAx/public/api.php?route=clientes/listar`);
+              const res = await fetch(
+                `/KRAx/public/api.php?route=clientes/listar`,
+              );
               const json = await res.json();
 
               if (json.ok) {
@@ -1223,7 +1247,9 @@
           }
 
           // Data padrão: hoje
-          const inputData = modal.querySelector('input[name="data_emprestimo"]');
+          const inputData = modal.querySelector(
+            'input[name="data_emprestimo"]',
+          );
           if (inputData && !inputData.value) {
             inputData.value = new Date().toISOString().slice(0, 10);
           }
@@ -1231,8 +1257,6 @@
           Modal.open("modalNovoEmprestimo");
           return;
         }
-
-
 
         // fallback: abre via map
         Modal.open(map[key] || key);
@@ -1243,7 +1267,6 @@
       if (e.key === "Escape") Modal.closeAll();
     });
   }
-
 
   document.addEventListener("DOMContentLoaded", () => {
     injectOverlay();
