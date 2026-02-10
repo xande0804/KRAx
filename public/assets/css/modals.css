@@ -97,6 +97,17 @@
   overflow: hidden;
 }
 
+.modal__dialog{
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal__body{
+  overflow: auto;
+}
+
 
 
 

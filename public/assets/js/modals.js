@@ -4,53 +4,9 @@
     return root.querySelector(sel);
   }
 
-  function injectToastHost() {
-    if (document.getElementById("toastHost")) return;
-    const host = document.createElement("div");
-    host.id = "toastHost";
-    host.className = "toast-host";
-    document.body.appendChild(host);
-  }
-
-  function toast(msg, type = "success", ms = 2200) {
-    injectToastHost();
-    const host = document.getElementById("toastHost");
-
-    const el = document.createElement("div");
-    el.className = `toast toast--${type}`;
-    el.textContent = msg;
-
-    host.appendChild(el);
-
-    requestAnimationFrame(() => el.classList.add("is-show"));
-
-    setTimeout(() => {
-      el.classList.remove("is-show");
-      setTimeout(() => el.remove(), 250);
-    }, ms);
-  }
-
-  function onSuccess(msg, opts = {}) {
-    toast(msg || "Ação concluída com sucesso!", "success", 1700);
-
-    const {
-      redirectTo = null, // ex: "emprestimos.html"
-      reload = true,
-      delay = 900,
-    } = opts;
-
-    setTimeout(() => {
-      if (redirectTo) {
-        window.location.href = redirectTo;
-        return;
-      }
-      if (reload) window.location.reload();
-    }, delay);
-  }
-
-  function onError(msg) {
-    toast(msg || "Ocorreu um erro.", "error", 2600);
-  }
+  const toast = window.toast || function(){};
+  const onSuccess = window.onSuccess || function(){};
+  const onError = window.onError || function(){};
 
   const Modal = {
     open(id) {
@@ -788,7 +744,8 @@
           form.querySelector('input[name="placa_carro"]').value = c.placa_carro || "";
           form.querySelector('input[name="indicacao"]').value = c.indicacao || "";
 
-          Modal.open("modalEditarCliente");
+          GestorModal.open("modalEditarCliente");
+          GestorModal.close("modalDetalhesCliente");
         } catch (err) {
           console.error(err);
           onError("Erro de rede ao buscar cliente");
