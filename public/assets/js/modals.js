@@ -4,6 +4,58 @@
     return root.querySelector(sel);
   }
 
+  // ============================
+  // TOAST GLOBAL (SUCESSO / ERRO)
+  // ============================
+  function injectToastHost() {
+    if (document.getElementById("toastHost")) return;
+    const host = document.createElement("div");
+    host.id = "toastHost";
+    host.className = "toast-host";
+    document.body.appendChild(host);
+  }
+
+  function toast(msg, type = "success", ms = 2200) {
+    injectToastHost();
+    const host = document.getElementById("toastHost");
+
+    const el = document.createElement("div");
+    el.className = `toast toast--${type}`;
+    el.textContent = msg;
+
+    host.appendChild(el);
+
+    requestAnimationFrame(() => el.classList.add("is-show"));
+
+    setTimeout(() => {
+      el.classList.remove("is-show");
+      setTimeout(() => el.remove(), 250);
+    }, ms);
+  }
+
+  function onSuccess(msg, opts = {}) {
+    toast(msg || "Ação concluída com sucesso!", "success", 1700);
+
+    const {
+      redirectTo = null, // ex: "emprestimos.html"
+      reload = true,
+      delay = 900
+    } = opts;
+
+    setTimeout(() => {
+      if (redirectTo) {
+        window.location.href = redirectTo;
+        return;
+      }
+      if (reload) window.location.reload();
+    }, delay);
+  }
+
+  function onError(msg) {
+    toast(msg || "Ocorreu um erro.", "error", 2600);
+  }
+
+
   const Modal = {
     open(id) {
       const overlay = qs("#modalOverlay");
@@ -141,7 +193,7 @@
         const json = await res.json();
 
         if (!json.ok) {
-          alert(json.mensagem || "Erro ao criar cliente");
+          onError(json.mensagem || "Erro ao criar cliente");
           abrirNovoEmprestimoDepois = false;
           return;
         }
@@ -155,7 +207,10 @@
 
         // se foi "Salvar e criar empréstimo": abre o outro modal já vinculado
         if (abrirNovoEmprestimoDepois) {
+          toast("Cliente cadastrado! Abrindo empréstimo...", "success", 1400);
           abrirNovoEmprestimoDepois = false;
+
+          Modal.closeAll();
 
           // garante que o modal exista (se sua injeção depende de gatilho)
           if (!document.getElementById("modalNovoEmprestimo") && typeof injectModalNovoEmprestimo === "function") {
@@ -166,25 +221,39 @@
           Modal.open("modalNovoEmprestimo");
 
           // preenche dentro do modal de novo empréstimo
-          const modalEmp = document.getElementById("modalNovoEmprestimo");
-          if (modalEmp) {
+          setTimeout(() => {
+            Modal.open("modalNovoEmprestimo");
+        
+            const modalEmp = document.getElementById("modalNovoEmprestimo");
+            if (!modalEmp) return;
+        
             const selectCliente = modalEmp.querySelector('select[name="cliente_id"]');
             if (selectCliente && novoClienteId) {
-              // cria a opção com NOME (não "Cliente #1")
-              selectCliente.innerHTML = `<option value="${novoClienteId}">${nomeDigitado || "Cliente"}</option>`;
+              selectCliente.innerHTML = `
+                <option value="">Selecione o cliente</option>
+                <option value="${novoClienteId}">${nomeDigitado || "Cliente"}</option>
+              `;
               selectCliente.value = String(novoClienteId);
-              selectCliente.disabled = true;
+        
+              // trava (CSS)
+              selectCliente.disabled = false;
+              selectCliente.dataset.locked = "1";
             }
-
+        
             const inputData = modalEmp.querySelector('input[name="data_emprestimo"]');
             if (inputData && !inputData.value) {
               inputData.value = new Date().toISOString().slice(0, 10);
             }
-          }
+          }, 0);
+        
+        }else{
+          onSuccess("Cliente cadastrado!", { reload: true });
         }
-      } catch (err) {
+
+
+      } catch (err) { 
         console.error(err);
-        alert("Erro de conexão com o servidor");
+        onSuccess("Erro de conexão com o servidor");
         abrirNovoEmprestimoDepois = false;
       }
     });
@@ -439,13 +508,36 @@
 
     // front-only: não recarrega
     const form = qs("#formLancarPagamento");
-    form.addEventListener("submit", (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
-      // aqui depois você troca por POST/fetch para PHP
-      // ou deixa o PHP receber normal removendo o preventDefault.
-      Modal.close("modalLancarPagamento");
+      try {
+        const fd = new FormData(form);
+
+        // AJUSTE a rota se a sua for diferente
+        const res = await fetch("/KRAx/public/api.php?route=pagamentos/criar", {
+          method: "POST",
+          body: fd,
+        });
+
+        const json = await res.json();
+
+        if (!json.ok) {
+          onError(json.mensagem || "Erro ao lançar pagamento");
+          return;
+        }
+
+        Modal.close("modalLancarPagamento");
+        form.reset();
+
+        onSuccess("Pagamento lançado!", { reload: true });
+
+      } catch (err) {
+        console.error(err);
+        onError("Erro de conexão com o servidor");
+      }
     });
+
 
   }
   function injectModalNovoEmprestimo() {
@@ -542,19 +634,25 @@
         const json = await res.json();
 
         if (!json.ok) {
-          alert(json.mensagem || "Erro ao criar empréstimo");
+          onError(json.mensagem || "Erro ao criar empréstimo");
           return;
         }
 
         Modal.close("modalNovoEmprestimo");
         form.reset();
 
-        // opcional: se você quiser atualizar a lista de clientes/emprestimos aqui, chama uma função
+        // vai pra página de empréstimos depois de criar
+        onSuccess("Empréstimo criado!", {
+          redirectTo: "emprestimos.html",
+          reload: false
+        });
+
       } catch (err) {
         console.error(err);
-        alert("Erro de conexão com o servidor");
+        onError("Erro de conexão com o servidor");
       }
     });
+
 
 
   }

@@ -63,3 +63,40 @@ button,input,select,textarea{ font:inherit; }
 @media (max-width: 520px){
   .grid--4{ grid-template-columns: 1fr; }
 }
+
+.toast-host{
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 10px;
+  z-index: 9999;
+}
+
+.toast{
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(20,20,20,0.92);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+  transform: translateY(10px);
+  opacity: 0;
+  transition: 200ms ease;
+  max-width: 320px;
+  font-size: 14px;
+}
+
+.toast.is-show{
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.toast--success{
+  border-color: rgba(80, 220, 140, 0.35);
+}
+
+.toast--error{
+  border-color: rgba(255, 90, 90, 0.45);
+}
+
