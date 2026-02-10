@@ -4,9 +4,6 @@
     return root.querySelector(sel);
   }
 
-  // ============================
-  // TOAST GLOBAL (SUCESSO / ERRO)
-  // ============================
   function injectToastHost() {
     if (document.getElementById("toastHost")) return;
     const host = document.createElement("div");
@@ -223,10 +220,10 @@
           // preenche dentro do modal de novo empréstimo
           setTimeout(() => {
             Modal.open("modalNovoEmprestimo");
-        
+
             const modalEmp = document.getElementById("modalNovoEmprestimo");
             if (!modalEmp) return;
-        
+
             const selectCliente = modalEmp.querySelector('select[name="cliente_id"]');
             if (selectCliente && novoClienteId) {
               selectCliente.innerHTML = `
@@ -234,24 +231,24 @@
                 <option value="${novoClienteId}">${nomeDigitado || "Cliente"}</option>
               `;
               selectCliente.value = String(novoClienteId);
-        
+
               // trava (CSS)
               selectCliente.disabled = false;
               selectCliente.dataset.locked = "1";
             }
-        
+
             const inputData = modalEmp.querySelector('input[name="data_emprestimo"]');
             if (inputData && !inputData.value) {
               inputData.value = new Date().toISOString().slice(0, 10);
             }
           }, 0);
-        
-        }else{
+
+        } else {
           onSuccess("Cliente cadastrado!", { reload: true });
         }
 
 
-      } catch (err) { 
+      } catch (err) {
         console.error(err);
         onSuccess("Erro de conexão com o servidor");
         abrirNovoEmprestimoDepois = false;
@@ -302,8 +299,8 @@
               <div class="client-line"><span class="icon-bullet">👥</span> Indicação: <strong data-fill="indicacao">—</strong></div>
 
               <div class="client-actions">
-                <button class="btn" type="button">✏️ Editar</button>
-                <button class="btn btn--danger" type="button">🗑️ Excluir</button>
+                <button class="btn" type="button" id="btnEditarCliente">✏️ Editar</button>
+                <button class="btn btn--danger" type="button" id="btnExcluirCliente">🗑️ Excluir</button>
               </div>
             </div>
 
@@ -515,7 +512,7 @@
         const fd = new FormData(form);
 
         // AJUSTE a rota se a sua for diferente
-        const res = await fetch("/KRAx/public/api.php?route=pagamentos/criar", {
+        const res = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
           method: "POST",
           body: fd,
         });
@@ -708,19 +705,27 @@
           fill("placa", "—");
           fill("indicacao", "—");
 
+          // esconde empréstimo enquanto carrega
+          const loanBox = modal.querySelector("#loanBox");
+          const noLoan = modal.querySelector("#noLoan");
+          if (loanBox) loanBox.style.display = "none";
+          if (noLoan) noLoan.style.display = "none";
+
           try {
-            const res = await fetch(
-              `/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`,
-            );
+            const res = await fetch(`/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`);
             const json = await res.json();
 
             if (!json.ok) {
-              alert(json.mensagem || "Erro ao buscar cliente");
+              onError(json.mensagem || "Erro ao buscar cliente");
               return;
             }
 
             const c = json.dados;
 
+            // guarda o clienteId no modal (útil pra editar/excluir)
+            modal.dataset.clienteId = String(clienteId);
+
+            // preenche dados
             fill("nome", c.nome);
             fill("telefone", c.telefone);
             fill("cpf", c.cpf);
@@ -729,27 +734,67 @@
             fill("placa", c.placa_carro);
             fill("indicacao", c.indicacao);
 
-            // por enquanto: empréstimo ativo fica oculto (a gente liga depois)
-            const loanBox = modal.querySelector("#loanBox");
-            const noLoan = modal.querySelector("#noLoan");
-            if (loanBox) loanBox.style.display = "none";
-            if (noLoan) noLoan.style.display = "";
-
-            // IMPORTANTe: o botão "Novo empréstimo" DENTRO do modal precisa receber o id/nome REAL
+            // botão "Novo empréstimo" DENTRO do modal
             const btnNovo = modal.querySelector("#btnNovoEmprestimoDoCliente");
             if (btnNovo) {
-              btnNovo.dataset.clienteId = clienteId;
-              btnNovo.dataset.clienteNome = c.nome; // <-- aqui é o ponto chave (nome real do fetch)
+              btnNovo.dataset.clienteId = String(clienteId);
+              btnNovo.dataset.clienteNome = c.nome || "";
             }
 
+            // botões Editar / Excluir (precisa ter os IDs no HTML do modal)
+            const btnEdit = modal.querySelector("#btnEditarCliente");
+            if (btnEdit) btnEdit.dataset.clienteId = String(clienteId);
+
+            const btnDel = modal.querySelector("#btnExcluirCliente");
+            if (btnDel) btnDel.dataset.clienteId = String(clienteId);
+
+            // ==========================
+            // EMPRÉSTIMOS DO CLIENTE (opcional)
+            // Se você ainda não tem esse endpoint, deixe comentado por enquanto.
+            // ==========================
+            /*
+            try {
+              const r2 = await fetch(`/KRAx/public/api.php?route=emprestimos/por_cliente&id=${clienteId}`);
+              const j2 = await r2.json();
+        
+              if (j2.ok && (j2.dados || []).length) {
+                const e0 = j2.dados[0]; // por enquanto usa o primeiro (ou o "ativo")
+        
+                fill("loan_status", e0.status || "Ativo");
+                fill("loan_valor", e0.valor_formatado || `R$ ${e0.valor_principal ?? "—"}`);
+                fill("loan_parcelas", e0.parcelas_info || `${e0.parcelas_pagas ?? 0}/${e0.quantidade_parcelas ?? 0}`);
+                fill("loan_venc", e0.proximo_vencimento || "—");
+        
+                if (loanBox) loanBox.style.display = "";
+                if (noLoan) noLoan.style.display = "none";
+              } else {
+                if (loanBox) loanBox.style.display = "none";
+                if (noLoan) {
+                  noLoan.style.display = "";
+                  noLoan.textContent = "Este cliente não possui empréstimo ativo.";
+                }
+              }
+            } catch (err2) {
+              console.error(err2);
+              if (loanBox) loanBox.style.display = "none";
+              if (noLoan) {
+                noLoan.style.display = "";
+                noLoan.textContent = "Não foi possível carregar os empréstimos deste cliente.";
+              }
+            }
+            */
+
+            // abre modal
             Modal.open("modalDetalhesCliente");
             return;
+
           } catch (err) {
             console.error(err);
-            alert("Erro de rede ao buscar cliente");
+            onError("Erro de rede ao buscar cliente");
             return;
           }
         }
+
 
         // -------------------------
         // DETALHES EMPRÉSTIMO
