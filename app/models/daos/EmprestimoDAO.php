@@ -24,17 +24,17 @@ class EmprestimoDAO
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
-            ':cliente_id'          => $e->getClienteId(),
-            ':data_emprestimo'     => $e->getDataEmprestimo(),
-            ':valor_principal'     => $e->getValorPrincipal(),
-            ':porcentagem_juros'   => $e->getPorcentagemJuros(),
+            ':cliente_id' => $e->getClienteId(),
+            ':data_emprestimo' => $e->getDataEmprestimo(),
+            ':valor_principal' => $e->getValorPrincipal(),
+            ':porcentagem_juros' => $e->getPorcentagemJuros(),
             ':quantidade_parcelas' => $e->getQuantidadeParcelas(),
-            ':tipo_vencimento'     => $e->getTipoVencimento(),
-            ':regra_vencimento'    => $e->getRegraVencimento(),
-            ':status'              => $e->getStatus(),
+            ':tipo_vencimento' => $e->getTipoVencimento(),
+            ':regra_vencimento' => $e->getRegraVencimento(),
+            ':status' => $e->getStatus(),
         ]);
 
-        return (int)$this->pdo->lastInsertId();
+        return (int) $this->pdo->lastInsertId();
     }
 
     // READ - buscar por id
@@ -45,7 +45,8 @@ class EmprestimoDAO
         $stmt->execute([':id' => $id]);
 
         $row = $stmt->fetch();
-        if (!$row) return null;
+        if (!$row)
+            return null;
 
         return $this->mapearParaEntity($row);
     }
@@ -80,8 +81,8 @@ class EmprestimoDAO
     private function mapearParaEntity(array $row): Emprestimo
     {
         $e = new Emprestimo();
-        $e->setId((int)$row['id']);
-        $e->setClienteId((int)$row['cliente_id']);
+        $e->setId((int) $row['id']);
+        $e->setClienteId((int) $row['cliente_id']);
         $e->setDataEmprestimo($row['data_emprestimo']);
         $e->setValorPrincipal($row['valor_principal']);
         $e->setPorcentagemJuros($row['porcentagem_juros']);
@@ -137,4 +138,11 @@ class EmprestimoDAO
         $stmt = $this->pdo->query($sql);
         return $stmt->fetchAll();
     }
+    public function contarAtivos(): int
+    {
+        $sql = "SELECT COUNT(*) FROM emprestimos WHERE status = 'ATIVO'";
+        $stmt = $this->pdo->query($sql);
+        return (int) $stmt->fetchColumn();
+    }
+
 }

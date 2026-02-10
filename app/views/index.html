@@ -43,8 +43,6 @@
           class="btn btn--primary"
           type="button"
           data-modal-open="novoEmprestimo"
-          data-cliente-id="1"
-          data-cliente-nome="Maria Silva"
         >
           + Novo empréstimo
         </button>
@@ -63,22 +61,24 @@
       <section class="grid grid--4 gap-12">
         <article class="card card--stat">
           <div class="stat__label">Clientes</div>
-          <div class="stat__value">...</div>
+          <div class="stat__value" id="statClientes">...</div>
         </article>
 
         <article class="card card--stat">
           <div class="stat__label">Empréstimos ativos</div>
-          <div class="stat__value">...</div>
+          <div class="stat__value" id="statAtivos">...</div>
         </article>
 
         <article class="card card--stat">
           <div class="stat__label">Vencem hoje</div>
-          <div class="stat__value">...</div>
+          <div class="stat__value" id="statHoje">...</div>
         </article>
 
         <article class="card card--stat">
           <div class="stat__label stat__label--danger">Atrasados</div>
-          <div class="stat__value stat__value--danger">...</div>
+          <div class="stat__value stat__value--danger" id="statAtrasados">
+            ...
+          </div>
         </article>
       </section>
 
@@ -100,22 +100,18 @@
             <div class="action-card__icon">📅</div>
             <div class="action-card__title">Vencimentos</div>
           </a>
-
-          <a class="action-card action-card--primary" href="emprestimos.html">
+ 
             <button
-              class="btn btn--primary"
+              class="btn btn--primary action-card action-card--primary"
               type="button"
               data-modal-open="novoEmprestimo"
-              data-cliente-id="1"
-              data-cliente-nome="Maria Silva"
             >
               + Novo empréstimo
             </button>
-          </a>
         </div>
       </section>
     </main>
-
+    <script src="../../public/assets/js/dashboard.js"></script>
     <script src="../../public/assets/js/modals.js"></script>
   </body>
 </html>

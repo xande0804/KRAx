@@ -140,4 +140,11 @@ class ClienteDAO
         $c->setIndicacao($row['indicacao'] ?? null);
         return $c;
     }
+    public function contarTodos(): int
+{
+    $sql = "SELECT COUNT(*) AS total FROM clientes";
+    $stmt = $this->pdo->query($sql);
+    return (int)$stmt->fetchColumn();
+}
+
 }

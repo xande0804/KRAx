@@ -21,12 +21,12 @@ class ParcelaDAO
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
-            ':emprestimo_id'  => $p->getEmprestimoId(),
+            ':emprestimo_id' => $p->getEmprestimoId(),
             ':numero_parcela' => $p->getNumeroParcela(),
             ':data_vencimento' => $p->getDataVencimento(),
-            ':valor_parcela'  => $p->getValorParcela(),
-            ':valor_pago'     => $p->getValorPago(),
-            ':status'         => $p->getStatus(),
+            ':valor_parcela' => $p->getValorParcela(),
+            ':valor_pago' => $p->getValorPago(),
+            ':status' => $p->getStatus(),
         ]);
     }
 
@@ -84,10 +84,10 @@ class ParcelaDAO
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
             ':v_add' => $valorPago,
-            ':v_ge'  => $valorPago,
-            ':v_gt'  => $valorPago,
+            ':v_ge' => $valorPago,
+            ':v_gt' => $valorPago,
             ':v_ge2' => $valorPago,
-            ':id'    => $parcelaId
+            ':id' => $parcelaId
         ]);
     }
 
@@ -115,4 +115,28 @@ class ParcelaDAO
         $stmt->execute([':eid' => $emprestimoId]);
         return $stmt->fetchAll();
     }
+    public function contarVencemHoje(string $data): int
+    {
+        $sql = "SELECT COUNT(*)
+            FROM parcelas
+            WHERE status = 'ABERTA'
+              AND data_vencimento = :data";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':data' => $data]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function contarAtrasados(string $data): int
+    {
+        $sql = "SELECT COUNT(*)
+            FROM parcelas
+            WHERE status IN ('ABERTA','PARCIAL')
+              AND data_vencimento < :data";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':data' => $data]);
+        return (int) $stmt->fetchColumn();
+    }
+
 }

@@ -50,6 +50,12 @@ switch ($route) {
         (new PagamentoController())->lancar();
         break;
 
+    case 'dashboard/resumo':
+    require_once __DIR__ . '/../app/controllers/DashboardController.php';
+    (new DashboardController())->resumo();
+    break;
+
+
     default:
         header('Content-Type: application/json');
         echo json_encode([
