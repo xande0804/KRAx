@@ -75,3 +75,8 @@
   .form-grid{ grid-template-columns: 1fr; }
   .form-span-2{ grid-column: span 1; }
 }
+
+select[data-locked="1"]{
+  pointer-events: none;
+  opacity: 0.85;
+}

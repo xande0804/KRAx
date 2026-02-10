@@ -68,7 +68,7 @@
           <button class="iconbtn" type="button" data-modal-close="modalNovoCliente">×</button>
         </header>
 
-        <form class="modal__body" id="formNovoCliente" action="#" method="post">
+        <form class="modal__body" id="formNovoCliente" action="/KRAx/public/api.php?route=clientes/criar" method="post">
           <div class="form-grid">
             <div class="field form-span-2">
               <label>Nome *</label>
@@ -123,17 +123,78 @@
 
     document.body.appendChild(modal);
 
-    // Front-only
+    // ===== SUBMIT REAL (POST pro backend) =====
     const form = qs("#formNovoCliente");
-    form.addEventListener("submit", (e) => {
-      e.preventDefault();
-      Modal.close("modalNovoCliente");
+    let abrirNovoEmprestimoDepois = false; // 👈 FLAG
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault(); // não deixar navegar pra página de JSON
+
+      try {
+        const fd = new FormData(form);
+
+        const res = await fetch("/KRAx/public/api.php?route=clientes/criar", {
+          method: "POST",
+          body: fd,
+        });
+
+        const json = await res.json();
+
+        if (!json.ok) {
+          alert(json.mensagem || "Erro ao criar cliente");
+          abrirNovoEmprestimoDepois = false;
+          return;
+        }
+
+        const novoClienteId = json.dados?.id;
+        const nomeDigitado = (fd.get("nome") || "").toString().trim();
+
+        // fecha + limpa
+        Modal.close("modalNovoCliente");
+        form.reset();
+
+        // se foi "Salvar e criar empréstimo": abre o outro modal já vinculado
+        if (abrirNovoEmprestimoDepois) {
+          abrirNovoEmprestimoDepois = false;
+
+          // garante que o modal exista (se sua injeção depende de gatilho)
+          if (!document.getElementById("modalNovoEmprestimo") && typeof injectModalNovoEmprestimo === "function") {
+            injectModalNovoEmprestimo();
+          }
+
+          // abre e passa os dados pelo "dataset" como se fosse um botão
+          Modal.open("modalNovoEmprestimo");
+
+          // preenche dentro do modal de novo empréstimo
+          const modalEmp = document.getElementById("modalNovoEmprestimo");
+          if (modalEmp) {
+            const selectCliente = modalEmp.querySelector('select[name="cliente_id"]');
+            if (selectCliente && novoClienteId) {
+              // cria a opção com NOME (não "Cliente #1")
+              selectCliente.innerHTML = `<option value="${novoClienteId}">${nomeDigitado || "Cliente"}</option>`;
+              selectCliente.value = String(novoClienteId);
+              selectCliente.disabled = true;
+            }
+
+            const inputData = modalEmp.querySelector('input[name="data_emprestimo"]');
+            if (inputData && !inputData.value) {
+              inputData.value = new Date().toISOString().slice(0, 10);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Erro de conexão com o servidor");
+        abrirNovoEmprestimoDepois = false;
+      }
     });
 
+    // ===== BOTÃO “SALVAR E CRIAR EMPRÉSTIMO” =====
     qs("#btnSalvarECriarEmprestimo").addEventListener("click", () => {
-      Modal.close("modalNovoCliente");
-      alert("Depois: abrir modal de Novo Empréstimo já vinculado ✅");
+      abrirNovoEmprestimoDepois = true;
+      form.requestSubmit(); // dispara o submit acima
     });
+
   }
 
   function injectModalDetalhesCliente() {
@@ -405,14 +466,14 @@
       <button class="iconbtn" type="button" data-modal-close="modalNovoEmprestimo">×</button>
     </header>
 
-    <form class="modal__body" id="formNovoEmprestimo" action="#" method="post">
+    <form class="modal__body" id="formNovoEmprestimo" action="/KRAx/public/api.php?route=emprestimos/criar" method="post">
       <div class="form-grid">
 
         <div class="field form-span-2">
           <label>Cliente</label>
           <select name="cliente_id" data-loannew="cliente_id" required>
-  <option value="">Selecione o cliente</option>
-</select>
+          <option value="">Selecione o cliente</option>
+        </select>
 
         </div>
 
@@ -423,31 +484,31 @@
 
         <div class="field">
           <label>Valor (R$)</label>
-          <input name="valor" data-loannew="valor" inputmode="decimal" placeholder="0,00" required />
+          <input name="valor_principal" data-loannew="valor" inputmode="decimal" placeholder="0,00" required />
         </div>
 
         <div class="field">
           <label>Parcelas</label>
-          <input type="number" min="1" name="parcelas" data-loannew="parcelas" value="10" required />
+          <input type="number" min="1" name="quantidade_parcelas" data-loannew="parcelas" value="10" required />
         </div>
 
         <div class="field">
           <label>Juros (%)</label>
-          <input type="number" min="0" step="0.01" name="juros" data-loannew="juros" value="10" required />
+          <input type="number" min="0" step="0.01" name="porcentagem_juros" data-loannew="juros" value="10" required />
         </div>
 
         <div class="field form-span-2">
           <label>Tipo de vencimento</label>
-          <select name="tipo_vencimento" data-loannew="tipo_vencimento" required>
-            <option value="Mensal">Mensal</option>
-            <option value="Semanal">Semanal</option>
-            <option value="Quinzenal">Quinzenal</option>
+          <select name="tipo_vencimento" required>
+            <option value="MENSAL">Mensal</option>
+            <option value="SEMANAL">Semanal</option>
+            <option value="DIARIO">Diário</option>
           </select>
         </div>
 
         <div class="field form-span-2">
           <label>Dia do mês</label>
-          <select name="dia_mes" data-loannew="dia_mes" required>
+          <select name="regra_vencimento" data-loannew="dia_mes" required>
             ${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">Dia ${i + 1}</option>`).join("")}
           </select>
         </div>
@@ -464,25 +525,51 @@
 
     document.body.appendChild(modal);
 
-    // front-only (igual os outros)
+    // ===== SUBMIT REAL (POST pro backend) =====
     const form = qs("#formNovoEmprestimo");
-    form.addEventListener("submit", (e) => {
+
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      Modal.close("modalNovoEmprestimo");
+
+      try {
+        const fd = new FormData(form);
+
+        const res = await fetch("/KRAx/public/api.php?route=emprestimos/criar", {
+          method: "POST",
+          body: fd,
+        });
+
+        const json = await res.json();
+
+        if (!json.ok) {
+          alert(json.mensagem || "Erro ao criar empréstimo");
+          return;
+        }
+
+        Modal.close("modalNovoEmprestimo");
+        form.reset();
+
+        // opcional: se você quiser atualizar a lista de clientes/emprestimos aqui, chama uma função
+      } catch (err) {
+        console.error(err);
+        alert("Erro de conexão com o servidor");
+      }
     });
+
+
   }
 
   function bindOpenClose() {
     document.addEventListener("click", async (e) => {
       const openEl = e.target.closest("[data-modal-open]");
       const closeEl = e.target.closest("[data-modal-close]");
-  
+
       // 1) Se clicou em algo que só fecha (X, Cancelar etc)
       if (closeEl && !openEl) {
         Modal.close(closeEl.getAttribute("data-modal-close"));
         return;
       }
-  
+
       // 2) Se clicou em algo que abre modal
       if (openEl) {
         const key = openEl.getAttribute("data-modal-open");
@@ -493,27 +580,27 @@
           lancarPagamento: "modalLancarPagamento",
           novoEmprestimo: "modalNovoEmprestimo",
         };
-  
+
         // Se o MESMO botão também manda fechar um modal antes, fecha primeiro.
         // Ex: botão "Novo empréstimo" dentro do modal detalhesCliente
         const closeTarget = openEl.getAttribute("data-modal-close");
         if (closeTarget) Modal.close(closeTarget);
-  
+
         // -------------------------
         // DETALHES CLIENTE (com fetch)
         // -------------------------
         if (key === "detalhesCliente") {
           const modal = document.getElementById("modalDetalhesCliente");
           if (!modal) return;
-  
+
           const clienteId = openEl.dataset.clienteId;
           if (!clienteId) return;
-  
+
           const fill = (field, value) => {
             const el = modal.querySelector(`[data-fill="${field}"]`);
             if (el) el.textContent = value || "—";
           };
-  
+
           // enquanto carrega
           fill("nome", "Carregando...");
           fill("telefone", "—");
@@ -522,20 +609,20 @@
           fill("profissao", "—");
           fill("placa", "—");
           fill("indicacao", "—");
-  
+
           try {
             const res = await fetch(
               `/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`,
             );
             const json = await res.json();
-  
+
             if (!json.ok) {
               alert(json.mensagem || "Erro ao buscar cliente");
               return;
             }
-  
+
             const c = json.dados;
-  
+
             fill("nome", c.nome);
             fill("telefone", c.telefone);
             fill("cpf", c.cpf);
@@ -543,20 +630,20 @@
             fill("profissao", c.profissao);
             fill("placa", c.placa_carro);
             fill("indicacao", c.indicacao);
-  
+
             // por enquanto: empréstimo ativo fica oculto (a gente liga depois)
             const loanBox = modal.querySelector("#loanBox");
             const noLoan = modal.querySelector("#noLoan");
             if (loanBox) loanBox.style.display = "none";
             if (noLoan) noLoan.style.display = "";
-  
+
             // IMPORTANTe: o botão "Novo empréstimo" DENTRO do modal precisa receber o id/nome REAL
             const btnNovo = modal.querySelector("#btnNovoEmprestimoDoCliente");
             if (btnNovo) {
               btnNovo.dataset.clienteId = clienteId;
               btnNovo.dataset.clienteNome = c.nome; // <-- aqui é o ponto chave (nome real do fetch)
             }
-  
+
             Modal.open("modalDetalhesCliente");
             return;
           } catch (err) {
@@ -565,47 +652,47 @@
             return;
           }
         }
-  
+
         // -------------------------
         // DETALHES EMPRÉSTIMO
         // -------------------------
         if (key === "detalhesEmprestimo") {
           const modal = document.getElementById("modalDetalhesEmprestimo");
           if (!modal) return;
-  
+
           const set = (field, value) => {
             const el = modal.querySelector(`[data-loan="${field}"]`);
             if (el) el.textContent = value || "—";
           };
-  
+
           // dados do botão (data-*)
           set("cliente_nome", openEl.dataset.clienteNome);
           set("cliente_tel", openEl.dataset.clienteTelefone);
-  
+
           set("valor", openEl.dataset.valor);
           set("total_juros", openEl.dataset.totalJuros);
-  
+
           set("parcelas", openEl.dataset.parcelas);
           set("tipo_venc", openEl.dataset.tipoVenc);
-  
+
           // status + criado
           const status = openEl.dataset.status || "Ativo";
           const statusEl = modal.querySelector(`[data-loan="status"]`);
           if (statusEl) {
             statusEl.textContent = status;
-  
+
             // cores do badge
             statusEl.classList.remove("badge--info", "badge--success", "badge--danger");
             if (status.toLowerCase() === "quitado") statusEl.classList.add("badge--success");
             else if (status.toLowerCase() === "atrasado") statusEl.classList.add("badge--danger");
             else statusEl.classList.add("badge--info");
           }
-  
+
           set("criado_em", openEl.dataset.criadoEm);
           const jurosLabel = modal.querySelector(`[data-loan="juros_label"]`);
           if (jurosLabel)
             jurosLabel.textContent = `Total com juros (${openEl.dataset.juros || "0"}%)`;
-  
+
           // Parcelas (lista)
           const list = modal.querySelector("#installmentsList");
           if (list) {
@@ -650,7 +737,7 @@
               </div>
             </div>`;
           }
-  
+
           // Histórico pagamentos (lista)
           const hist = modal.querySelector("#payHistoryList");
           if (hist) {
@@ -675,22 +762,22 @@
               </div>
             </div>`;
           }
-  
+
           Modal.open("modalDetalhesEmprestimo");
           return;
         }
-  
+
         // -------------------------
         // LANÇAR PAGAMENTO
         // -------------------------
         if (key === "lancarPagamento") {
           const modal = document.getElementById("modalLancarPagamento");
           if (!modal) return;
-  
+
           const setPay = (field, value) => {
             const el = modal.querySelector(`[data-pay="${field}"]`);
             if (!el) return;
-  
+
             if (
               el.tagName === "INPUT" ||
               el.tagName === "TEXTAREA" ||
@@ -701,33 +788,33 @@
               el.textContent = value ?? "—";
             }
           };
-  
+
           setPay("cliente_nome", openEl.dataset.clienteNome || "—");
           setPay("emprestimo_info", openEl.dataset.emprestimoInfo || "—");
-  
+
           if (openEl.dataset.tipoPadrao) setPay("tipo_pagamento", openEl.dataset.tipoPadrao);
           if (openEl.dataset.valorPadrao) setPay("valor_pago", openEl.dataset.valorPadrao);
           if (openEl.dataset.dataPadrao) setPay("data_pagamento", openEl.dataset.dataPadrao);
-  
+
           Modal.open("modalLancarPagamento");
           return;
         }
-  
+
         // -------------------------
         // NOVO EMPRÉSTIMO (cliente pré-selecionado e com nome)
         // -------------------------
         if (key === "novoEmprestimo") {
           const modal = document.getElementById("modalNovoEmprestimo");
           if (!modal) return;
-  
+
           const selectCliente = modal.querySelector('select[name="cliente_id"]');
           if (!selectCliente) return;
-  
+
           const clienteId = openEl.dataset.clienteId || "";
-          const clienteNome = openEl.dataset.clienteNome || (clienteId ? `Cliente #${clienteId}` : "");
-  
+          const clienteNome = openEl.dataset.clienteNome || "";
+
           if (clienteId) {
-            // garante que exista option com esse value e com o nome certo
+            // 1) garante que exista a option do cliente com o nome certo
             let opt = selectCliente.querySelector(`option[value="${clienteId}"]`);
             if (!opt) {
               opt = document.createElement("option");
@@ -737,34 +824,75 @@
             } else {
               if (clienteNome) opt.textContent = clienteNome;
             }
-  
+
+            // 2) seleciona
             selectCliente.value = clienteId;
-            selectCliente.disabled = true;
-          } else {
-            // abrindo pelo topo: libera select
+
+            // 3) trava (sem disabled)
             selectCliente.disabled = false;
+            selectCliente.dataset.locked = "1";
+          } else {
+            // ABRINDO DO ZERO (tela empréstimos / botão rápido)
+
+            // 1) destrava
+            selectCliente.disabled = false;
+            selectCliente.removeAttribute("data-locked");
+
+            // 2) limpa opções antigas (deixa só "Selecione o cliente")
+            const first = selectCliente.querySelector('option[value=""]');
+            selectCliente.innerHTML = "";
+            if (first) selectCliente.appendChild(first);
+            else {
+              const opt0 = document.createElement("option");
+              opt0.value = "";
+              opt0.textContent = "Selecione o cliente";
+              selectCliente.appendChild(opt0);
+            }
+            selectCliente.value = "";
+
+            // 3) carrega clientes do backend pra preencher o select
+            try {
+              const res = await fetch(`/KRAx/public/api.php?route=clientes/listar`);
+              const json = await res.json();
+
+              if (json.ok) {
+                (json.dados || []).forEach((c) => {
+                  const opt = document.createElement("option");
+                  opt.value = c.id;
+                  opt.textContent = c.nome;
+                  selectCliente.appendChild(opt);
+                });
+              } else {
+                alert(json.mensagem || "Erro ao carregar clientes");
+              }
+            } catch (err) {
+              console.error(err);
+              alert("Erro de rede ao carregar clientes");
+            }
           }
-  
+
           // Data padrão: hoje
           const inputData = modal.querySelector('input[name="data_emprestimo"]');
           if (inputData && !inputData.value) {
             inputData.value = new Date().toISOString().slice(0, 10);
           }
-  
+
           Modal.open("modalNovoEmprestimo");
           return;
         }
-  
+
+
+
         // fallback: abre via map
         Modal.open(map[key] || key);
       }
     });
-  
+
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") Modal.closeAll();
     });
   }
-  
+
 
   document.addEventListener("DOMContentLoaded", () => {
     injectOverlay();
