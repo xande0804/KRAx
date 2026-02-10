@@ -35,20 +35,24 @@ class ClienteDAO
     // READ (listar todos)
     public function listar(): array
     {
-        $sql = "SELECT id, nome, cpf, telefone, endereco, profissao, placa_carro, indicacao
-                FROM clientes
-                ORDER BY nome ASC";
+        $sql = "SELECT
+                c.*,
+                CASE
+                    WHEN EXISTS (
+                      SELECT 1
+                      FROM emprestimos e
+                      WHERE e.cliente_id = c.id
+                        AND e.status = 'ATIVO'
+                    ) THEN 1
+                    ELSE 0
+                END AS tem_emprestimo_ativo
+            FROM clientes c
+            ORDER BY c.id DESC";
 
         $stmt = $this->pdo->query($sql);
-        $linhas = $stmt->fetchAll();
-
-        $clientes = [];
-        foreach ($linhas as $row) {
-            $clientes[] = $this->mapearParaEntity($row);
-        }
-
-        return $clientes;
+        return $stmt->fetchAll(); // <- mantém tem_emprestimo_ativo
     }
+
 
     // READ (buscar por id)
     public function buscarPorId(int $id): ?Cliente

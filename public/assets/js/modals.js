@@ -205,7 +205,15 @@
             </div>
 
             <div class="bottom-action">
-              <button class="btn" type="button">➕ Novo empréstimo</button>
+              <button
+                class="btn"
+                type="button"
+                data-modal-open="novoEmprestimo"
+                data-modal-close="modalDetalhesCliente"
+                id="btnNovoEmprestimoDoCliente"
+                >
+                ➕ Novo empréstimo
+              </button>
             </div>
 
           </div>
@@ -403,11 +411,9 @@
         <div class="field form-span-2">
           <label>Cliente</label>
           <select name="cliente_id" data-loannew="cliente_id" required>
-            <option value="">Selecione o cliente</option>
-            <!-- depois você preenche via backend/JS -->
-            <option value="1">Maria Silva</option>
-            <option value="2">Pedro Costa</option>
-          </select>
+  <option value="">Selecione o cliente</option>
+</select>
+
         </div>
 
         <div class="field form-span-2">
@@ -467,12 +473,19 @@
   }
 
   function bindOpenClose() {
-    document.addEventListener("click", (e) => {
-      const open = e.target.closest("[data-modal-open]");
-      const close = e.target.closest("[data-modal-close]");
-
-      if (open) {
-        const key = open.getAttribute("data-modal-open");
+    document.addEventListener("click", async (e) => {
+      const openEl = e.target.closest("[data-modal-open]");
+      const closeEl = e.target.closest("[data-modal-close]");
+  
+      // 1) Se clicou em algo que só fecha (X, Cancelar etc)
+      if (closeEl && !openEl) {
+        Modal.close(closeEl.getAttribute("data-modal-close"));
+        return;
+      }
+  
+      // 2) Se clicou em algo que abre modal
+      if (openEl) {
+        const key = openEl.getAttribute("data-modal-open");
         const map = {
           novoCliente: "modalNovoCliente",
           detalhesCliente: "modalDetalhesCliente",
@@ -480,160 +493,204 @@
           lancarPagamento: "modalLancarPagamento",
           novoEmprestimo: "modalNovoEmprestimo",
         };
-
-        // preencher dados ANTES de abrir
+  
+        // Se o MESMO botão também manda fechar um modal antes, fecha primeiro.
+        // Ex: botão "Novo empréstimo" dentro do modal detalhesCliente
+        const closeTarget = openEl.getAttribute("data-modal-close");
+        if (closeTarget) Modal.close(closeTarget);
+  
+        // -------------------------
+        // DETALHES CLIENTE (com fetch)
+        // -------------------------
         if (key === "detalhesCliente") {
           const modal = document.getElementById("modalDetalhesCliente");
           if (!modal) return;
-
+  
+          const clienteId = openEl.dataset.clienteId;
+          if (!clienteId) return;
+  
           const fill = (field, value) => {
             const el = modal.querySelector(`[data-fill="${field}"]`);
             if (el) el.textContent = value || "—";
           };
-
-          fill("nome", open.dataset.clienteNome);
-          fill("telefone", open.dataset.clienteTelefone);
-          fill("cpf", open.dataset.clienteCpf);
-          fill("endereco", open.dataset.clienteEndereco);
-          fill("profissao", open.dataset.clienteProfissao);
-          fill("placa", open.dataset.clientePlaca);
-          fill("indicacao", open.dataset.clienteIndicacao);
-
-          const temEmprestimo = open.dataset.emprestimoAtivo === "1";
-          const loanBox = modal.querySelector("#loanBox");
-          const noLoan = modal.querySelector("#noLoan");
-
-          if (temEmprestimo) {
-            loanBox.style.display = "";
-            noLoan.style.display = "none";
-            fill("loan_status", "Ativo");
-            fill("loan_valor", "R$ 5.000");
-            fill("loan_parcelas", "3/10");
-            fill("loan_venc", "10/05/2026");
-          } else {
-            loanBox.style.display = "none";
-            noLoan.style.display = "";
+  
+          // enquanto carrega
+          fill("nome", "Carregando...");
+          fill("telefone", "—");
+          fill("cpf", "—");
+          fill("endereco", "—");
+          fill("profissao", "—");
+          fill("placa", "—");
+          fill("indicacao", "—");
+  
+          try {
+            const res = await fetch(
+              `/KRAx/public/api.php?route=clientes/detalhes&id=${clienteId}`,
+            );
+            const json = await res.json();
+  
+            if (!json.ok) {
+              alert(json.mensagem || "Erro ao buscar cliente");
+              return;
+            }
+  
+            const c = json.dados;
+  
+            fill("nome", c.nome);
+            fill("telefone", c.telefone);
+            fill("cpf", c.cpf);
+            fill("endereco", c.endereco);
+            fill("profissao", c.profissao);
+            fill("placa", c.placa_carro);
+            fill("indicacao", c.indicacao);
+  
+            // por enquanto: empréstimo ativo fica oculto (a gente liga depois)
+            const loanBox = modal.querySelector("#loanBox");
+            const noLoan = modal.querySelector("#noLoan");
+            if (loanBox) loanBox.style.display = "none";
+            if (noLoan) noLoan.style.display = "";
+  
+            // IMPORTANTe: o botão "Novo empréstimo" DENTRO do modal precisa receber o id/nome REAL
+            const btnNovo = modal.querySelector("#btnNovoEmprestimoDoCliente");
+            if (btnNovo) {
+              btnNovo.dataset.clienteId = clienteId;
+              btnNovo.dataset.clienteNome = c.nome; // <-- aqui é o ponto chave (nome real do fetch)
+            }
+  
+            Modal.open("modalDetalhesCliente");
+            return;
+          } catch (err) {
+            console.error(err);
+            alert("Erro de rede ao buscar cliente");
+            return;
           }
         }
-
+  
+        // -------------------------
+        // DETALHES EMPRÉSTIMO
+        // -------------------------
         if (key === "detalhesEmprestimo") {
           const modal = document.getElementById("modalDetalhesEmprestimo");
           if (!modal) return;
-
+  
           const set = (field, value) => {
             const el = modal.querySelector(`[data-loan="${field}"]`);
             if (el) el.textContent = value || "—";
           };
-
+  
           // dados do botão (data-*)
-          set("cliente_nome", open.dataset.clienteNome);
-          set("cliente_tel", open.dataset.clienteTelefone);
-
-          set("valor", open.dataset.valor);
-          set("total_juros", open.dataset.totalJuros);
-
-          set("parcelas", open.dataset.parcelas);
-          set("tipo_venc", open.dataset.tipoVenc);
-
+          set("cliente_nome", openEl.dataset.clienteNome);
+          set("cliente_tel", openEl.dataset.clienteTelefone);
+  
+          set("valor", openEl.dataset.valor);
+          set("total_juros", openEl.dataset.totalJuros);
+  
+          set("parcelas", openEl.dataset.parcelas);
+          set("tipo_venc", openEl.dataset.tipoVenc);
+  
           // status + criado
-          const status = open.dataset.status || "Ativo";
+          const status = openEl.dataset.status || "Ativo";
           const statusEl = modal.querySelector(`[data-loan="status"]`);
           if (statusEl) {
             statusEl.textContent = status;
-
+  
             // cores do badge
-            statusEl.classList.remove(
-              "badge--info",
-              "badge--success",
-              "badge--danger",
-            );
-            if (status.toLowerCase() === "quitado")
-              statusEl.classList.add("badge--success");
-            else if (status.toLowerCase() === "atrasado")
-              statusEl.classList.add("badge--danger");
+            statusEl.classList.remove("badge--info", "badge--success", "badge--danger");
+            if (status.toLowerCase() === "quitado") statusEl.classList.add("badge--success");
+            else if (status.toLowerCase() === "atrasado") statusEl.classList.add("badge--danger");
             else statusEl.classList.add("badge--info");
           }
-
-          set("criado_em", open.dataset.criadoEm);
+  
+          set("criado_em", openEl.dataset.criadoEm);
           const jurosLabel = modal.querySelector(`[data-loan="juros_label"]`);
           if (jurosLabel)
-            jurosLabel.textContent = `Total com juros (${open.dataset.juros || "0"}%)`;
-
+            jurosLabel.textContent = `Total com juros (${openEl.dataset.juros || "0"}%)`;
+  
           // Parcelas (lista)
           const list = modal.querySelector("#installmentsList");
-          list.innerHTML = `<div class="installment-row">
-      <div class="inst-left">
-        <span class="inst-dot inst-dot--ok"></span>
-        <span class="inst-title">Parcela 1</span>
-      </div>
-      <div class="inst-right">
-        <span>10/02/2026</span>
-        <span class="inst-value">R$ 550,00</span>
-      </div>
-    </div>
-    <div class="installment-row">
-      <div class="inst-left">
-        <span class="inst-dot inst-dot--ok"></span>
-        <span class="inst-title">Parcela 2</span>
-      </div>
-      <div class="inst-right">
-        <span>10/03/2026</span>
-        <span class="inst-value">R$ 550,00</span>
-      </div>
-    </div>
-    <div class="installment-row">
-      <div class="inst-left">
-        <span class="inst-dot inst-dot--ok"></span>
-        <span class="inst-title">Parcela 3</span>
-      </div>
-      <div class="inst-right">
-        <span>10/04/2026</span>
-        <span class="inst-value">R$ 550,00</span>
-      </div>
-    </div>
-    <div class="installment-row">
-      <div class="inst-left">
-        <span class="inst-dot"></span>
-        <span class="inst-title">Parcela 4</span>
-      </div>
-      <div class="inst-right">
-        <span>10/05/2026</span>
-        <span class="inst-value">R$ 550,00</span>
-      </div>
-    </div>`;
-
+          if (list) {
+            list.innerHTML = `<div class="installment-row">
+              <div class="inst-left">
+                <span class="inst-dot inst-dot--ok"></span>
+                <span class="inst-title">Parcela 1</span>
+              </div>
+              <div class="inst-right">
+                <span>10/02/2026</span>
+                <span class="inst-value">R$ 550,00</span>
+              </div>
+            </div>
+            <div class="installment-row">
+              <div class="inst-left">
+                <span class="inst-dot inst-dot--ok"></span>
+                <span class="inst-title">Parcela 2</span>
+              </div>
+              <div class="inst-right">
+                <span>10/03/2026</span>
+                <span class="inst-value">R$ 550,00</span>
+              </div>
+            </div>
+            <div class="installment-row">
+              <div class="inst-left">
+                <span class="inst-dot inst-dot--ok"></span>
+                <span class="inst-title">Parcela 3</span>
+              </div>
+              <div class="inst-right">
+                <span>10/04/2026</span>
+                <span class="inst-value">R$ 550,00</span>
+              </div>
+            </div>
+            <div class="installment-row">
+              <div class="inst-left">
+                <span class="inst-dot"></span>
+                <span class="inst-title">Parcela 4</span>
+              </div>
+              <div class="inst-right">
+                <span>10/05/2026</span>
+                <span class="inst-value">R$ 550,00</span>
+              </div>
+            </div>`;
+          }
+  
           // Histórico pagamentos (lista)
           const hist = modal.querySelector("#payHistoryList");
-          hist.innerHTML = `
-    <div class="pay-row">
-      <div class="pay-left">
-        <div class="pay-title">Parcela</div>
-      </div>
-      <div class="pay-right">
-        <span>10/02/2026</span>
-        <span class="pay-value">R$ 550,00</span>
-      </div>
-    </div>
-    <div class="pay-row">
-      <div class="pay-left">
-        <div class="pay-title">Parcela</div>
-        <div class="pay-sub">Pagamento em dia</div>
-      </div>
-      <div class="pay-right">
-        <span>10/01/2026</span>
-        <span class="pay-value">R$ 550,00</span>
-      </div>
-    </div>`;
+          if (hist) {
+            hist.innerHTML = `
+            <div class="pay-row">
+              <div class="pay-left">
+                <div class="pay-title">Parcela</div>
+              </div>
+              <div class="pay-right">
+                <span>10/02/2026</span>
+                <span class="pay-value">R$ 550,00</span>
+              </div>
+            </div>
+            <div class="pay-row">
+              <div class="pay-left">
+                <div class="pay-title">Parcela</div>
+                <div class="pay-sub">Pagamento em dia</div>
+              </div>
+              <div class="pay-right">
+                <span>10/01/2026</span>
+                <span class="pay-value">R$ 550,00</span>
+              </div>
+            </div>`;
+          }
+  
+          Modal.open("modalDetalhesEmprestimo");
+          return;
         }
-
+  
+        // -------------------------
+        // LANÇAR PAGAMENTO
+        // -------------------------
         if (key === "lancarPagamento") {
           const modal = document.getElementById("modalLancarPagamento");
           if (!modal) return;
-
+  
           const setPay = (field, value) => {
             const el = modal.querySelector(`[data-pay="${field}"]`);
             if (!el) return;
-
+  
             if (
               el.tagName === "INPUT" ||
               el.tagName === "TEXTAREA" ||
@@ -644,86 +701,79 @@
               el.textContent = value ?? "—";
             }
           };
-
-          setPay("cliente_nome", open.dataset.clienteNome || "—");
-          setPay("emprestimo_info", open.dataset.emprestimoInfo || "—");
-
-          // defaults (opcionais)
-          if (open.dataset.tipoPadrao)
-            setPay("tipo_pagamento", open.dataset.tipoPadrao);
-          if (open.dataset.valorPadrao)
-            setPay("valor_pago", open.dataset.valorPadrao);
-          if (open.dataset.dataPadrao)
-            setPay("data_pagamento", open.dataset.dataPadrao);
+  
+          setPay("cliente_nome", openEl.dataset.clienteNome || "—");
+          setPay("emprestimo_info", openEl.dataset.emprestimoInfo || "—");
+  
+          if (openEl.dataset.tipoPadrao) setPay("tipo_pagamento", openEl.dataset.tipoPadrao);
+          if (openEl.dataset.valorPadrao) setPay("valor_pago", openEl.dataset.valorPadrao);
+          if (openEl.dataset.dataPadrao) setPay("data_pagamento", openEl.dataset.dataPadrao);
+  
+          Modal.open("modalLancarPagamento");
+          return;
         }
-
+  
+        // -------------------------
+        // NOVO EMPRÉSTIMO (cliente pré-selecionado e com nome)
+        // -------------------------
         if (key === "novoEmprestimo") {
           const modal = document.getElementById("modalNovoEmprestimo");
           if (!modal) return;
-
-          const setLoanNew = (field, value) => {
-            const el = modal.querySelector(`[data-loannew="${field}"]`);
-            if (!el) return;
-            el.value = value ?? "";
-          };
-
-          // cliente pré-selecionado (se veio do botão)
-          if (open.dataset.clienteId)
-            setLoanNew("cliente_id", open.dataset.clienteId);
-
-          // data padrão = hoje (se não vier)
-          if (!open.dataset.dataEmprestimo) {
-            const hoje = new Date().toISOString().slice(0, 10);
-            setLoanNew("data_emprestimo", hoje);
+  
+          const selectCliente = modal.querySelector('select[name="cliente_id"]');
+          if (!selectCliente) return;
+  
+          const clienteId = openEl.dataset.clienteId || "";
+          const clienteNome = openEl.dataset.clienteNome || (clienteId ? `Cliente #${clienteId}` : "");
+  
+          if (clienteId) {
+            // garante que exista option com esse value e com o nome certo
+            let opt = selectCliente.querySelector(`option[value="${clienteId}"]`);
+            if (!opt) {
+              opt = document.createElement("option");
+              opt.value = clienteId;
+              opt.textContent = clienteNome || `Cliente #${clienteId}`;
+              selectCliente.appendChild(opt);
+            } else {
+              if (clienteNome) opt.textContent = clienteNome;
+            }
+  
+            selectCliente.value = clienteId;
+            selectCliente.disabled = true;
           } else {
-            setLoanNew("data_emprestimo", open.dataset.dataEmprestimo);
+            // abrindo pelo topo: libera select
+            selectCliente.disabled = false;
           }
-
-          // defaults opcionais
-          if (open.dataset.parcelas)
-            setLoanNew("parcelas", open.dataset.parcelas);
-          if (open.dataset.juros) setLoanNew("juros", open.dataset.juros);
-          if (open.dataset.tipoVenc)
-            setLoanNew("tipo_vencimento", open.dataset.tipoVenc);
-          if (open.dataset.diaMes) setLoanNew("dia_mes", open.dataset.diaMes);
+  
+          // Data padrão: hoje
+          const inputData = modal.querySelector('input[name="data_emprestimo"]');
+          if (inputData && !inputData.value) {
+            inputData.value = new Date().toISOString().slice(0, 10);
+          }
+  
+          Modal.open("modalNovoEmprestimo");
+          return;
         }
-
+  
+        // fallback: abre via map
         Modal.open(map[key] || key);
       }
-
-      if (close) {
-        Modal.close(close.getAttribute("data-modal-close"));
-      }
     });
-
+  
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape") Modal.closeAll();
     });
   }
+  
 
   document.addEventListener("DOMContentLoaded", () => {
     injectOverlay();
 
-    // Injeta modais SOMENTE se existirem gatilhos na página
-    if (document.querySelector('[data-modal-open="novoCliente"]')) {
-      injectModalNovoCliente();
-    }
-
-    if (document.querySelector('[data-modal-open="detalhesCliente"]')) {
-      injectModalDetalhesCliente();
-    }
-
-    if (document.querySelector('[data-modal-open="detalhesEmprestimo"]')) {
-      injectModalDetalhesEmprestimo();
-    }
-
-    if (document.querySelector('[data-modal-open="lancarPagamento"]')) {
-      injectModalLancamentoPagamento();
-    }
-
-    if (document.querySelector('[data-modal-open="novoEmprestimo"]')) {
-      injectModalNovoEmprestimo();
-    }
+    injectModalNovoCliente();
+    injectModalDetalhesCliente();
+    injectModalDetalhesEmprestimo();
+    injectModalLancamentoPagamento();
+    injectModalNovoEmprestimo();
 
     bindOpenClose();
   });

@@ -43,28 +43,29 @@ class ClienteController
     {
         try {
             $dao = new ClienteDAO();
-            $clientes = $dao->listar();
+            $linhas = $dao->listar(); // agora vem array com tem_emprestimo_ativo
 
-            // Converter Entities -> array (para JSON)
-            $saida = [];
-            foreach ($clientes as $c) {
-                $saida[] = [
-                    'id' => $c->getId(),
-                    'nome' => $c->getNome(),
-                    'cpf' => $c->getCpf(),
-                    'telefone' => $c->getTelefone(),
-                    'endereco' => $c->getEndereco(),
-                    'profissao' => $c->getProfissao(),
-                    'placa_carro' => $c->getPlacaCarro(),
-                    'indicacao' => $c->getIndicacao(),
+            $dados = [];
+            foreach ($linhas as $row) {
+                $dados[] = [
+                    'id' => (int)$row['id'],
+                    'nome' => $row['nome'],
+                    'cpf' => $row['cpf'] ?? null,
+                    'telefone' => $row['telefone'] ?? null,
+                    'endereco' => $row['endereco'] ?? null,
+                    'profissao' => $row['profissao'] ?? null,
+                    'placa_carro' => $row['placa_carro'] ?? null,
+                    'indicacao' => $row['indicacao'] ?? null,
+                    'tem_emprestimo_ativo' => (int)($row['tem_emprestimo_ativo'] ?? 0),
                 ];
             }
 
-            $this->responderJson(true, 'Lista de clientes', $saida);
+            $this->responderJson(true, 'Lista de clientes', $dados);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
     }
+
 
     public function detalhes(): void
     {
