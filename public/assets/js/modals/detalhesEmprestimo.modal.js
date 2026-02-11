@@ -69,8 +69,9 @@
 
           <div class="loan-kpis">
             <div class="kpi">
-              <div class="kpi__label">Valor</div>
+              <div class="kpi__label">Valor do empréstimo</div>
               <div class="kpi__value" data-loan="valor">—</div>
+              <div class="kpi__hint" data-loan="prestacao_hint">Prestação: —</div>
             </div>
 
             <div class="kpi">
@@ -108,7 +109,7 @@
           <div class="hr"></div>
 
           <div class="modal-section">
-            <h4 class="modal-section__title">Parcelas</h4>
+            <h4 class="modal-section__title">Prestações</h4>
             <div class="installments">
               <div class="installments__scroll" id="installmentsList"></div>
             </div>
@@ -149,6 +150,8 @@
     set("cliente_nome", "Carregando...");
     set("cliente_tel", "—");
     set("valor", "—");
+    set("prestacao_hint", "Prestação: —");
+    set("juros_label", "Total com juros");
     set("total_juros", "—");
     set("parcelas", "—");
     set("tipo_venc", "—");
@@ -157,7 +160,7 @@
 
     const installments = modal.querySelector("#installmentsList");
     const payHist = modal.querySelector("#payHistoryList");
-    if (installments) installments.innerHTML = `<div class="muted" style="padding:10px;">Carregando parcelas...</div>`;
+    if (installments) installments.innerHTML = `<div class="muted" style="padding:10px;">Carregando prestações...</div>`;
     if (payHist) payHist.innerHTML = `<div class="muted" style="padding:10px;">Carregando pagamentos...</div>`;
 
     try {
@@ -178,7 +181,7 @@
       set("cliente_nome", cli.nome || "—");
       set("cliente_tel", cli.telefone || "—");
 
-      // ====== ✅ PRESTAÇÃO (principal + juros) / parcelas ======
+      // ====== PRESTAÇÃO (principal + juros) / parcelas ======
       const principal = Number(emp.valor_principal ?? 0);
       const jurosPct = Number(emp.porcentagem_juros ?? 0);
 
@@ -186,8 +189,10 @@
       const totalComJuros = principal * (1 + jurosPct / 100);
       const valorPrestacao = totalParcelas > 0 ? (totalComJuros / totalParcelas) : totalComJuros;
 
-      // KPI: agora mostra prestação
+      // KPI "Valor" = principal + hint da prestação
       set("valor", money(principal));
+      set("prestacao_hint", `Prestação: ${money(valorPrestacao)}`);
+
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
       set("total_juros", money(totalComJuros));
 
@@ -237,7 +242,7 @@
         btnPay.dataset.clienteId = modal.dataset.clienteId || String(emp.cliente_id || "");
       }
 
-      // botão "Marcar como quitado" (mantive como você já está usando)
+      // botão "Marcar como quitado"
       if (btnQuit) {
         btnQuit.disabled = statusAtual === "QUITADO";
 
@@ -288,18 +293,16 @@
         };
       }
 
-      // ====== Parcelas (agora exibindo valor da PRESTAÇÃO) ======
+      // ====== Prestações (exibe valor da PRESTAÇÃO) ======
       if (installments) {
         if (!parcelas.length) {
-          installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma parcela encontrada.</div>`;
+          installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma prestação encontrada.</div>`;
         } else {
           installments.innerHTML = parcelas
             .map((p) => {
               const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
               const venc = formatDateBR(p.data_vencimento ?? p.dataVencimento);
 
-              // ✅ antes você mostrava p.valor_parcela (principal/parcelas)
-              // ✅ agora mostra prestação (principal+juros)/parcelas
               const val = money(valorPrestacao);
 
               const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
@@ -314,7 +317,7 @@
                 <div class="installment-row">
                   <div class="inst-left">
                     <span class="inst-dot ${dotCls}"></span>
-                    <span class="inst-title">Parcela ${esc(num)}</span>
+                    <span class="inst-title">Prestação ${esc(num)}</span>
                   </div>
                   <div class="inst-right">
                     <span>${esc(venc)}</span>
