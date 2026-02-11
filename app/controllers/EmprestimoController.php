@@ -32,7 +32,28 @@ class EmprestimoController
 
             // 2) Gera parcelas
             $parcelaDao = new ParcelaDAO();
-            $valorParcela = round($dto->valor_principal / $dto->quantidade_parcelas, 2);
+            $principal = (float) $dto->valor_principal;
+            $qtd = (int) $dto->quantidade_parcelas;
+            $jurosPct = (float) $dto->porcentagem_juros;
+
+            if ($qtd <= 0) {
+                throw new InvalidArgumentException("Quantidade de parcelas inválida.");
+            }
+
+            $tipo = strtoupper(trim($dto->tipo_vencimento));
+
+            // 🔥 NOVA REGRA
+            if ($tipo === "MENSAL") {
+                // Fórmula mensal nova
+                $valorPrestacao = ($principal / $qtd) + ($principal * ($jurosPct / 100));
+            } else {
+                // Mantém fórmula antiga para diário e semanal
+                $totalComJuros = $principal * (1 + $jurosPct / 100);
+                $valorPrestacao = $totalComJuros / $qtd;
+            }
+
+            $valorParcela = round($valorPrestacao, 2);
+
 
             for ($i = 1; $i <= $dto->quantidade_parcelas; $i++) {
                 $p = new Parcela();
@@ -108,69 +129,70 @@ class EmprestimoController
     }
 
     public function vencimentosAmanha(): void
-{
-    try {
-        $dataStr = $_GET['data'] ?? date('Y-m-d');
-        $base = new DateTime($dataStr);
-        $base->modify('+1 day');
+    {
+        try {
+            $dataStr = $_GET['data'] ?? date('Y-m-d');
+            $base = new DateTime($dataStr);
+            $base->modify('+1 day');
 
-        $parcelaDao = new ParcelaDAO();
-        $lista = $parcelaDao->listarVencimentos($base);
+            $parcelaDao = new ParcelaDAO();
+            $lista = $parcelaDao->listarVencimentos($base);
 
-        $this->responderJson(true, 'Vencimentos amanhã', $this->mapVencimentos($lista));
-    } catch (Exception $e) {
-        $this->responderJson(false, $e->getMessage());
-    }
-}
-
-public function vencimentosSemana(): void
-{
-    try {
-        $dataStr = $_GET['data'] ?? date('Y-m-d');
-        $ini = new DateTime($dataStr);
-        $fim = (new DateTime($dataStr))->modify('+7 day');
-
-        $parcelaDao = new ParcelaDAO();
-
-        // ⚠️ precisa existir no ParcelaDAO:
-        // listarVencimentosEntre(DateTime $ini, DateTime $fim)
-        $lista = $parcelaDao->listarVencimentosEntre($ini, $fim);
-
-        $this->responderJson(true, 'Vencimentos da semana', $this->mapVencimentos($lista));
-    } catch (Exception $e) {
-        $this->responderJson(false, $e->getMessage());
-    }
-}
-
-private function mapVencimentos(array $lista): array
-{
-    $hoje = date('Y-m-d');
-
-    $saida = [];
-    foreach ($lista as $row) {
-        $dataV = substr($row['data_vencimento'], 0, 10);
-
-        $saida[] = [
-            'cliente_id' => (int)$row['cliente_id'],
-            'cliente_nome' => $row['cliente_nome'],
-            'emprestimo_id' => (int)$row['emprestimo_id'],
-            'parcela_id' => (int)$row['parcela_id'],
-            'parcela_num' => isset($row['numero_parcela']) ? (int)$row['numero_parcela'] : null,
-            'data_vencimento' => $dataV,
-            'valor' => (float)$row['valor_parcela'],
-            'status' => $dataV < $hoje ? 'ATRASADO' : 'PENDENTE'
-        ];
+            $this->responderJson(true, 'Vencimentos amanhã', $this->mapVencimentos($lista));
+        } catch (Exception $e) {
+            $this->responderJson(false, $e->getMessage());
+        }
     }
 
-    return $saida;
-}
+    public function vencimentosSemana(): void
+    {
+        try {
+            $dataStr = $_GET['data'] ?? date('Y-m-d');
+            $ini = new DateTime($dataStr);
+            $fim = (new DateTime($dataStr))->modify('+7 day');
+
+            $parcelaDao = new ParcelaDAO();
+
+            // ⚠️ precisa existir no ParcelaDAO:
+            // listarVencimentosEntre(DateTime $ini, DateTime $fim)
+            $lista = $parcelaDao->listarVencimentosEntre($ini, $fim);
+
+            $this->responderJson(true, 'Vencimentos da semana', $this->mapVencimentos($lista));
+        } catch (Exception $e) {
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
+    private function mapVencimentos(array $lista): array
+    {
+        $hoje = date('Y-m-d');
+
+        $saida = [];
+        foreach ($lista as $row) {
+            $dataV = substr($row['data_vencimento'], 0, 10);
+
+            $saida[] = [
+                'cliente_id' => (int) $row['cliente_id'],
+                'cliente_nome' => $row['cliente_nome'],
+                'emprestimo_id' => (int) $row['emprestimo_id'],
+                'parcela_id' => (int) $row['parcela_id'],
+                'parcela_num' => isset($row['numero_parcela']) ? (int) $row['numero_parcela'] : null,
+                'data_vencimento' => $dataV,
+                'valor' => (float) $row['valor_parcela'],
+                'status' => $dataV < $hoje ? 'ATRASADO' : 'PENDENTE'
+            ];
+        }
+
+        return $saida;
+    }
 
 
     public function detalhes(): void
     {
         try {
-            $id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-            if ($id <= 0) throw new InvalidArgumentException('ID inválido.');
+            $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
+            if ($id <= 0)
+                throw new InvalidArgumentException('ID inválido.');
 
             $empDAO = new EmprestimoDAO();
             $parDAO = new ParcelaDAO();
@@ -178,10 +200,12 @@ private function mapVencimentos(array $lista): array
             $cliDAO = new ClienteDAO();
 
             $emp = $empDAO->buscarPorId($id);
-            if (!$emp) throw new RuntimeException('Empréstimo não encontrado.');
+            if (!$emp)
+                throw new RuntimeException('Empréstimo não encontrado.');
 
             $cliente = $cliDAO->buscarPorId($emp->getClienteId());
-            if (!$cliente) throw new RuntimeException('Cliente não encontrado.');
+            if (!$cliente)
+                throw new RuntimeException('Cliente não encontrado.');
 
             $parcelas = $parDAO->listarPorEmprestimo($id);
             $pagamentos = $pagDAO->listarPorEmprestimo($id);
@@ -248,8 +272,9 @@ private function mapVencimentos(array $lista): array
     public function porCliente(): void
     {
         try {
-            $clienteId = isset($_GET['cliente_id']) ? (int)$_GET['cliente_id'] : 0;
-            if ($clienteId <= 0) throw new InvalidArgumentException('cliente_id inválido.');
+            $clienteId = isset($_GET['cliente_id']) ? (int) $_GET['cliente_id'] : 0;
+            if ($clienteId <= 0)
+                throw new InvalidArgumentException('cliente_id inválido.');
 
             $dao = new EmprestimoDAO();
             $lista = $dao->listarPorCliente($clienteId);
