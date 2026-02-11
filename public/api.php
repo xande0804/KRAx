@@ -43,9 +43,9 @@ switch ($route) {
         (new EmprestimoController())->vencimentosAmanha();
     break;
 
-    /*case 'vencimentos/semana':
+    case 'vencimentos/semana':
         (new EmprestimoController())->vencimentosSemana();
-    break;*/
+    break;
 
 
     case 'emprestimos/detalhes':

@@ -18,7 +18,6 @@ class PagamentoController
 
             if ($emprestimoId <= 0) throw new InvalidArgumentException('emprestimo_id inválido.');
 
-            // ✅ inclui QUITACAO
             if (!in_array($tipo, ['JUROS', 'PARCELA', 'INTEGRAL', 'EXTRA', 'QUITACAO'], true)) {
                 throw new InvalidArgumentException('tipo_pagamento inválido.');
             }
@@ -27,9 +26,10 @@ class PagamentoController
             $parDAO = new ParcelaDAO();
             $empDAO = new EmprestimoDAO();
 
-            // ✅ QUITACAO: backend calcula o valor real (não confia no front)
+            // =========================================================
+            // QUITAÇÃO: backend calcula o valor real
+            // =========================================================
             if ($tipo === 'QUITACAO') {
-                // 1) saldo das parcelas (principal em aberto)
                 $parcelasAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
 
                 $faltanteParcelas = 0.0;
@@ -38,7 +38,6 @@ class PagamentoController
                     if ($faltante > 0) $faltanteParcelas += $faltante;
                 }
 
-                // 2) juros faltante (JUROS total - JUROS pago)
                 $emp = $empDAO->buscarPorId($emprestimoId);
                 if (!$emp) throw new RuntimeException('Empréstimo não encontrado.');
 
@@ -46,14 +45,11 @@ class PagamentoController
                 $jurosPct  = (float)$emp->getPorcentagemJuros();
 
                 $jurosTotal = $principal * ($jurosPct / 100);
-
-                // soma pagamentos do tipo JUROS
-                $jurosPago = $pagDAO->somarPorEmprestimoETipo($emprestimoId, 'JUROS');
+                $jurosPago  = $pagDAO->somarPorEmprestimoETipo($emprestimoId, 'JUROS');
 
                 $faltanteJuros = $jurosTotal - $jurosPago;
-                if ($faltanteJuros < 0) $faltanteJuros = 0; // não deixa negativo
+                if ($faltanteJuros < 0) $faltanteJuros = 0;
 
-                // 3) total quitação
                 $totalQuitacao = $faltanteParcelas + $faltanteJuros;
 
                 if ($totalQuitacao <= 0) {
@@ -62,80 +58,34 @@ class PagamentoController
 
                 $valor = $totalQuitacao;
 
-                if (!$obs) {
-                    $obs = 'Quitação total (parcelas + juros)';
-                }
+                if (!$obs) $obs = 'Quitação total (parcelas + juros)';
             }
 
-
-            // ✅ valida valor (mas QUITACAO já foi calculado acima)
             if ($valor <= 0) throw new InvalidArgumentException('valor_pago inválido.');
 
-            // 1) registra pagamento
-            $p = new Pagamento();
-            $p->setEmprestimoId($emprestimoId);
-            $p->setParcelaId($parcelaId);
-            $p->setValorPago($valor);
-            $p->setTipoPagamento($tipo);
-            $p->setObservacao($obs);
+            // =========================================================
+            // 1) EFEITO POR TIPO
+            // =========================================================
 
+            // ---------- JUROS / EXTRA: só registra pagamento ----------
+            if ($tipo === 'JUROS' || $tipo === 'EXTRA') {
+                $pagId = $this->criarPagamento($pagDAO, $emprestimoId, $parcelaId, $tipo, $valor, $obs);
 
-
-            // 2) aplica efeito
-            if ($tipo === 'PARCELA') {
-
-                // Se veio parcela_id (ex: vencimentos), paga direto nela
-                if ($parcelaId) {
-                    $parDAO->adicionarPagamentoNaParcela($parcelaId, $valor);
-                } else {
-                    // Se NÃO veio parcela_id (ex: botão "Pagamento" da tela de empréstimos),
-                    // aplica automaticamente nas prestações em aberto, em ordem.
-
-                    $restante = $valor;
-
-                    $parcelasAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
-                    if (!$parcelasAbertas || count($parcelasAbertas) === 0) {
-                        throw new InvalidArgumentException('Não há prestações em aberto para receber pagamento.');
-                    }
-
-                    foreach ($parcelasAbertas as $parcela) {
-                        if ($restante <= 0) break;
-
-                        $idParcela = (int)$parcela['id'];
-                        $valorParcela = (float)$parcela['valor_parcela'];
-                        $valorPago = (float)$parcela['valor_pago'];
-
-                        $faltante = $valorParcela - $valorPago;
-                        if ($faltante <= 0) continue;
-
-                        $pagarAqui = min($restante, $faltante);
-
-                        $parDAO->adicionarPagamentoNaParcela($idParcela, $pagarAqui);
-
-                        $restante -= $pagarAqui;
-                    }
-
-                    // Se ainda sobrou, você pode:
-                    // (A) deixar como "crédito" (precisa de coluna no banco), OU
-                    // (B) simplesmente ignorar/avisar.
-                    // Por enquanto, vamos só ignorar e registrar no obs.
-                    if ($restante > 0) {
-                        // opcional: anexar observação no pagamento
-                        // $obs = trim(($obs ? $obs.' | ' : '') . 'Crédito excedente: R$ ' . number_format($restante, 2, ',', '.'));
-                    }
-                }
-
-                // Depois de aplicar, se não existir mais parcelas abertas -> marca quitado
-                $aindaAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
-                if (!$aindaAbertas || count($aindaAbertas) === 0) {
-                    $empDAO->atualizarStatus($emprestimoId, 'QUITADO');
-                }
+                $this->responderJson(true, 'Pagamento lançado', [
+                    'pagamento_id' => $pagId,
+                    'valor_pago' => $valor,
+                    'tipo_pagamento' => $tipo
+                ]);
+                return;
             }
 
-
+            // ---------- QUITAÇÃO / INTEGRAL: paga tudo e quita ----------
             if ($tipo === 'INTEGRAL' || $tipo === 'QUITACAO') {
-                $parcelas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
+                // registra pagamento principal (sem parcela_id mesmo)
+                $pagId = $this->criarPagamento($pagDAO, $emprestimoId, null, $tipo, $valor, $obs);
 
+                // agora aplica: quitar todas parcelas faltantes
+                $parcelas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
                 foreach ($parcelas as $parcela) {
                     $faltante = (float)$parcela['valor_parcela'] - (float)$parcela['valor_pago'];
                     if ($faltante > 0) {
@@ -144,18 +94,114 @@ class PagamentoController
                 }
 
                 $empDAO->atualizarStatus($emprestimoId, 'QUITADO');
+
+                $this->responderJson(true, 'Pagamento lançado', [
+                    'pagamento_id' => $pagId,
+                    'valor_pago' => $valor,
+                    'tipo_pagamento' => $tipo
+                ]);
+                return;
             }
 
-            $pagId = $pagDAO->criar($p);
+            // ---------- PARCELA: SEMPRE precisa aplicar em parcela(s) ----------
+            if ($tipo === 'PARCELA') {
+                $restante = $valor;
 
-            $this->responderJson(true, 'Pagamento lançado', [
-                'pagamento_id' => $pagId,
-                'valor_pago' => $valor,
-                'tipo_pagamento' => $tipo
-            ]);
+                $parcelasAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
+                if (!$parcelasAbertas || count($parcelasAbertas) === 0) {
+                    throw new InvalidArgumentException('Não há prestações em aberto para receber pagamento.');
+                }
+
+                // se veio parcela_id, começa por ela; se não, começa pela primeira aberta
+                if ($parcelaId) {
+                    // reordena: coloca a parcela escolhida primeiro
+                    usort($parcelasAbertas, function ($a, $b) use ($parcelaId) {
+                        if ((int)$a['id'] === $parcelaId) return -1;
+                        if ((int)$b['id'] === $parcelaId) return 1;
+                        return ((int)$a['numero_parcela'] <=> (int)$b['numero_parcela']);
+                    });
+                }
+
+                $pagamentosCriados = [];
+
+                foreach ($parcelasAbertas as $parcela) {
+                    if ($restante <= 0) break;
+
+                    $idParcela   = (int)$parcela['id'];
+                    $valorParcela = (float)$parcela['valor_parcela'];
+                    $valorPagoPar = (float)$parcela['valor_pago'];
+
+                    $faltante = $valorParcela - $valorPagoPar;
+                    if ($faltante <= 0) continue;
+
+                    $pagarAqui = min($restante, $faltante);
+
+                    // ✅ 1) cria pagamento COM parcela_id (senão dá erro)
+                    $pagId = $this->criarPagamento(
+                        $pagDAO,
+                        $emprestimoId,
+                        $idParcela,
+                        'PARCELA',
+                        $pagarAqui,
+                        $obs
+                    );
+
+                    // ✅ 2) aplica na parcela
+                    $parDAO->adicionarPagamentoNaParcela($idParcela, $pagarAqui);
+
+                    $pagamentosCriados[] = [
+                        'pagamento_id' => $pagId,
+                        'parcela_id' => $idParcela,
+                        'valor_pago' => $pagarAqui
+                    ];
+
+                    $restante -= $pagarAqui;
+                }
+
+                // se sobrou grana e não tem mais parcelas: registra como EXTRA (crédito)
+                if ($restante > 0) {
+                    $obsExtra = trim(($obs ? $obs . ' | ' : '') . 'Crédito excedente gerado automaticamente');
+                    $pagIdExtra = $this->criarPagamento($pagDAO, $emprestimoId, null, 'EXTRA', $restante, $obsExtra);
+
+                    $pagamentosCriados[] = [
+                        'pagamento_id' => $pagIdExtra,
+                        'parcela_id' => null,
+                        'valor_pago' => $restante,
+                        'tipo_pagamento' => 'EXTRA'
+                    ];
+                }
+
+                // depois de aplicar, se não existir mais parcelas abertas -> marca quitado
+                $aindaAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
+                if (!$aindaAbertas || count($aindaAbertas) === 0) {
+                    $empDAO->atualizarStatus($emprestimoId, 'QUITADO');
+                }
+
+                $this->responderJson(true, 'Pagamento lançado', [
+                    'tipo_pagamento' => 'PARCELA',
+                    'valor_total' => $valor,
+                    'pagamentos' => $pagamentosCriados
+                ]);
+                return;
+            }
+
+            throw new InvalidArgumentException('Fluxo não tratado.');
+
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
+    }
+
+    private function criarPagamento(PagamentoDAO $pagDAO, int $emprestimoId, ?int $parcelaId, string $tipo, float $valor, ?string $obs): int
+    {
+        $p = new Pagamento();
+        $p->setEmprestimoId($emprestimoId);
+        $p->setParcelaId($parcelaId);
+        $p->setValorPago($valor);
+        $p->setTipoPagamento($tipo);
+        $p->setObservacao($obs);
+
+        return $pagDAO->criar($p);
     }
 
     private function responderJson(bool $ok, string $mensagem, $dados = null): void

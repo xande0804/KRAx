@@ -1,3 +1,4 @@
+// public/assets/js/modals/lancamentoPagamento.modal.js
 (function () {
   const qs = window.qs;
   const onSuccess = window.onSuccess || function () { };
@@ -22,7 +23,6 @@
     const principal = toNumber(emp.valor_principal);
     const jurosPct = toNumber(emp.porcentagem_juros);
     const qtd = Math.max(1, toNumber(emp.quantidade_parcelas));
-
     const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
 
     let prestacao = 0;
@@ -30,13 +30,11 @@
     let jurosPrestacao = 0;
 
     if (tipoV === "MENSAL") {
-      // ✅ mensal: juros inteiro em cada prestação
       const jurosInteiro = principal * (jurosPct / 100);
       prestacao = (principal / qtd) + jurosInteiro;
       totalComJuros = prestacao * qtd;
       jurosPrestacao = jurosInteiro;
     } else {
-      // ✅ diário e semanal: juros distribuído
       totalComJuros = principal * (1 + jurosPct / 100);
       prestacao = totalComJuros / qtd;
       jurosPrestacao = (principal * (jurosPct / 100)) / qtd;
@@ -52,7 +50,6 @@
   }
 
   function closeAnyOpenModal() {
-    // tenta fechar qualquer modal “aberto”
     document.querySelectorAll(".modal").forEach((m) => {
       const isHidden = m.getAttribute("aria-hidden");
       if (isHidden === "false") {
@@ -103,7 +100,7 @@
                 <option value="PARCELA">Prestação</option>
                 <option value="JUROS">Apenas juros</option>
                 <option value="QUITACAO">Quitação (total)</option>
-                <option value="EXTRA">Valor Parcial</option>
+                <option value="EXTRA">Valor parcial</option>
               </select>
               <div class="muted" style="margin-top:6px;" data-pay="hint"></div>
             </div>
@@ -139,6 +136,30 @@
       e.preventDefault();
 
       try {
+        const tipoSel = modal.querySelector(`[data-pay="tipo_pagamento"]`);
+        const tipo = String(tipoSel ? tipoSel.value : "").toUpperCase();
+
+        const emprestimoId = modal.querySelector(`[data-pay="emprestimo_id"]`)?.value || "";
+        if (!emprestimoId) {
+          onError("emprestimo_id está vazio. Não dá pra lançar pagamento.");
+          return;
+        }
+
+        // ✅ regra do parcela_id:
+        // - PARCELA: mantém se tiver (ex: vencimentos), se não tiver deixa vazio (backend distribui).
+        // - JUROS / QUITACAO / EXTRA: sempre limpa parcela_id.
+        const parcelaHidden = modal.querySelector(`[data-pay="parcela_id"]`);
+        if (parcelaHidden) {
+          if (tipo === "PARCELA") {
+            // se tiver um default guardado e o campo estiver vazio, aplica
+            if (!parcelaHidden.value && modal.dataset.defaultParcelaId) {
+              parcelaHidden.value = modal.dataset.defaultParcelaId;
+            }
+          } else {
+            parcelaHidden.value = "";
+          }
+        }
+
         const fd = new FormData(form);
 
         const res = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
@@ -156,8 +177,28 @@
         GestorModal.close("modalLancarPagamento");
         form.reset();
 
-        // ✅ mantém seu padrão
-        onSuccess("Pagamento lançado!", { reload: true });
+        // ✅ refresh inteligente
+        const origem = modal.dataset.origem || "";
+        const empId = modal.dataset.emprestimoId || "";
+        const clienteId = modal.dataset.clienteId || "";
+
+        if (origem === "detalhesEmprestimo" && empId && typeof window.openDetalhesEmprestimo === "function") {
+          window.openDetalhesEmprestimo(empId, { origem: "emprestimos", clienteId });
+        } else if (origem === "detalhesCliente" && clienteId && typeof window.openDetalhesCliente === "function") {
+          window.openDetalhesCliente(clienteId);
+        } else {
+          // vencimentos / listas (se tiver funções)
+          if (typeof window.refreshVencimentos === "function") window.refreshVencimentos();
+          if (typeof window.refreshEmprestimosList === "function") window.refreshEmprestimosList();
+          if (typeof window.refreshClientesList === "function") window.refreshClientesList();
+
+          // fallback
+          if (!window.refreshVencimentos && !window.refreshEmprestimosList && !window.refreshClientesList) {
+            window.location.reload();
+          }
+        }
+
+        onSuccess("Pagamento lançado!");
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
@@ -169,7 +210,6 @@
     const modal = document.getElementById("modalLancarPagamento");
     if (!modal) return;
 
-    // ✅ fecha qualquer modal aberto antes de abrir este
     closeAnyOpenModal();
 
     const setPay = (field, value) => {
@@ -186,25 +226,32 @@
     const valorInput = modal.querySelector(`[data-pay="valor_pago"]`);
     const tipoSelect = modal.querySelector(`[data-pay="tipo_pagamento"]`);
 
-    // dados base vindos do botão
+    // dados do botão
     const emprestimoId = openEl.dataset.emprestimoId || "";
     const parcelaId = openEl.dataset.parcelaId || "";
 
+    // ✅ salva contexto p/ refresh pós-pagamento
+    // (detalhesEmprestimo deve mandar data-origem e data-cliente-id / vencimentos não precisa)
+    const origem = openEl.dataset.origem || "";
+    modal.dataset.origem = origem === "cliente" ? "detalhesCliente" : (origem ? "detalhesEmprestimo" : "");
+    modal.dataset.emprestimoId = emprestimoId || "";
+    modal.dataset.clienteId = openEl.dataset.clienteId || "";
+
+    // ✅ parcela default: se veio do vencimentos, guarda. se não veio, fica vazio.
+    modal.dataset.defaultParcelaId = parcelaId || "";
+
     setPay("cliente_nome", openEl.dataset.clienteNome || "—");
     setPay("emprestimo_info", openEl.dataset.emprestimoInfo || "—");
-    setPay("emprestimo_id", openEl.dataset.emprestimoId || "");
-    setPay("parcela_id", openEl.dataset.parcelaId || "");
+    setPay("emprestimo_id", emprestimoId);
+    setPay("parcela_id", parcelaId); // pode ser vazio
 
-    // tipo padrão
     if (openEl.dataset.tipoPadrao) setPay("tipo_pagamento", openEl.dataset.tipoPadrao);
 
-    // data padrão hoje
     const today = new Date().toISOString().slice(0, 10);
     setPay("data_pagamento", openEl.dataset.dataPadrao || today);
 
-    // ✅ vamos buscar os dados do empréstimo pra calcular valores
     async function hydrateValores() {
-      // fallback: se não tiver emprestimoId, só abre do jeito antigo
+      // fallback sem emprestimoId
       if (!emprestimoId) {
         if (openEl.dataset.valorPadrao) setPay("valor_pago", openEl.dataset.valorPadrao);
         setHint("");
@@ -227,14 +274,13 @@
         const cli = dados.cliente || {};
         const pagamentos = Array.isArray(dados.pagamentos) ? dados.pagamentos : [];
 
-        // atualiza textos caso tenha vindo vazio
         if (cli.nome) setPay("cliente_nome", cli.nome);
+
         const info = `${money(emp.valor_principal)} • ${emp.quantidade_parcelas || "—"} prestações`;
         setPay("emprestimo_info", openEl.dataset.emprestimoInfo || info);
 
         const c = calcValoresEmprestimo(emp, pagamentos);
 
-        // guarda cache no modal (pra usar no change)
         modal.dataset.prestacao = String(c.prestacao);
         modal.dataset.jurosPrestacao = String(c.jurosPrestacao);
         modal.dataset.saldoQuitacao = String(c.saldoQuitacao);
@@ -245,10 +291,22 @@
           const juros = toNumber(modal.dataset.jurosPrestacao);
           const saldo = toNumber(modal.dataset.saldoQuitacao);
 
-          // default
           if (valorInput) {
             valorInput.required = true;
             valorInput.readOnly = false;
+          }
+
+          // ✅ parcela_id: só faz sentido em PARCELA (quando veio da tela de vencimentos)
+          const parcelaHidden = modal.querySelector(`[data-pay="parcela_id"]`);
+          if (parcelaHidden) {
+            if (t === "PARCELA") {
+              // mantém se tiver; se não tiver, deixa vazio (backend distribui automaticamente)
+              if (!parcelaHidden.value && modal.dataset.defaultParcelaId) {
+                parcelaHidden.value = modal.dataset.defaultParcelaId;
+              }
+            } else {
+              parcelaHidden.value = "";
+            }
           }
 
           if (t === "PARCELA") {
@@ -258,8 +316,6 @@
             setPay("valor_pago", juros.toFixed(2).replace(".", ","));
             setHint(`Juros desta prestação: ${money(juros)}`);
           } else if (t === "QUITACAO" || t === "INTEGRAL") {
-            // você pediu: ou não mostrar valor, ou já mostrar total pra quitar.
-            // Vou deixar preenchido + readonly (menos chance de erro).
             setPay("valor_pago", saldo.toFixed(2).replace(".", ","));
             setHint(`Quitação (saldo estimado): ${money(saldo)}`);
             if (valorInput) valorInput.readOnly = true;
@@ -272,10 +328,8 @@
           }
         }
 
-        // aplica no tipo atual
         applyTipo(tipoSelect ? tipoSelect.value : "PARCELA");
 
-        // escuta mudança de tipo
         if (tipoSelect) {
           tipoSelect.onchange = () => applyTipo(tipoSelect.value);
         }
