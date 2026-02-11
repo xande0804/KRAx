@@ -39,6 +39,15 @@ switch ($route) {
         (new EmprestimoController())->vencimentosDoDia();
         break;
 
+    case 'vencimentos/amanha':
+        (new EmprestimoController())->vencimentosAmanha();
+    break;
+
+    case 'vencimentos/semana':
+        (new EmprestimoController())->vencimentosSemana();
+    break;
+
+
     case 'emprestimos/detalhes':
         (new EmprestimoController())->detalhes();
         break;
@@ -58,8 +67,6 @@ switch ($route) {
     case 'emprestimos/por_cliente':
         (new EmprestimoController())->porCliente();
         break;
-
-
 
     default:
         header('Content-Type: application/json');

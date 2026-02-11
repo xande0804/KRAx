@@ -107,6 +107,65 @@ class EmprestimoController
         }
     }
 
+    public function vencimentosAmanha(): void
+{
+    try {
+        $dataStr = $_GET['data'] ?? date('Y-m-d');
+        $base = new DateTime($dataStr);
+        $base->modify('+1 day');
+
+        $parcelaDao = new ParcelaDAO();
+        $lista = $parcelaDao->listarVencimentos($base);
+
+        $this->responderJson(true, 'Vencimentos amanhã', $this->mapVencimentos($lista));
+    } catch (Exception $e) {
+        $this->responderJson(false, $e->getMessage());
+    }
+}
+
+public function vencimentosSemana(): void
+{
+    try {
+        $dataStr = $_GET['data'] ?? date('Y-m-d');
+        $ini = new DateTime($dataStr);
+        $fim = (new DateTime($dataStr))->modify('+7 day');
+
+        $parcelaDao = new ParcelaDAO();
+
+        // ⚠️ precisa existir no ParcelaDAO:
+        // listarVencimentosEntre(DateTime $ini, DateTime $fim)
+        $lista = $parcelaDao->listarVencimentosEntre($ini, $fim);
+
+        $this->responderJson(true, 'Vencimentos da semana', $this->mapVencimentos($lista));
+    } catch (Exception $e) {
+        $this->responderJson(false, $e->getMessage());
+    }
+}
+
+private function mapVencimentos(array $lista): array
+{
+    $hoje = date('Y-m-d');
+
+    $saida = [];
+    foreach ($lista as $row) {
+        $dataV = substr($row['data_vencimento'], 0, 10);
+
+        $saida[] = [
+            'cliente_id' => (int)$row['cliente_id'],
+            'cliente_nome' => $row['cliente_nome'],
+            'emprestimo_id' => (int)$row['emprestimo_id'],
+            'parcela_id' => (int)$row['parcela_id'],
+            'parcela_num' => isset($row['numero_parcela']) ? (int)$row['numero_parcela'] : null,
+            'data_vencimento' => $dataV,
+            'valor' => (float)$row['valor_parcela'],
+            'status' => $dataV < $hoje ? 'ATRASADO' : 'PENDENTE'
+        ];
+    }
+
+    return $saida;
+}
+
+
     public function detalhes(): void
     {
         try {
