@@ -4,7 +4,7 @@
   const input = document.getElementById("clientesSearch");
   if (!list) return;
 
-  const API = "/KRAx/public/api.php"; // se der erro, a gente ajusta
+  const API = "/KRAx/public/api.php";
 
   let items = [];
 
@@ -36,7 +36,7 @@
             ${c.tem_emprestimo_ativo == 1
               ? `<span class="badge badge--active">Empréstimo ativo</span>`
               : `<span class="badge">Sem empréstimo</span>`
-            }            
+            }
           </div>
           <div class="list-item__sub">${telefone}</div>
         </div>
@@ -57,10 +57,11 @@
 
     items = Array.from(list.querySelectorAll(".list-item"));
     if (countEl) countEl.textContent = String(items.length);
+    filtrar();
   }
 
   async function carregar() {
-    const res = await fetch(`${API}?route=clientes/listar`); // isso é um endpoint
+    const res = await fetch(`${API}?route=clientes/listar`);
     const json = await res.json();
 
     if (!json.ok) {
@@ -87,6 +88,16 @@
   }
 
   if (input) input.addEventListener("input", filtrar);
+
+  // ✅ expõe refresh global pra outros modais chamarem (quitação/pagamento etc.)
+  window.refreshClientesList = function refreshClientesList() {
+    // mantém o texto do filtro (se existir)
+    const q = input ? input.value : "";
+    carregar().finally(() => {
+      if (input) input.value = q;
+      filtrar();
+    });
+  };
 
   carregar();
 })();

@@ -40,4 +40,21 @@ class PagamentoDAO
         $stmt->execute([':eid' => $emprestimoId]);
         return $stmt->fetchAll();
     }
+
+    public function somarPorEmprestimoETipo(int $emprestimoId, string $tipo): float
+    {
+        $sql = "SELECT COALESCE(SUM(valor_pago), 0) AS total
+            FROM pagamentos
+            WHERE emprestimo_id = :id
+              AND UPPER(tipo_pagamento) = :tipo";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':id' => $emprestimoId,
+            ':tipo' => strtoupper($tipo),
+        ]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return (float)($row['total'] ?? 0);
+    }
 }

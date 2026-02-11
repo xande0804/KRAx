@@ -17,14 +17,59 @@ class PagamentoController
             $obs          = isset($_POST['observacao']) ? trim($_POST['observacao']) : null;
 
             if ($emprestimoId <= 0) throw new InvalidArgumentException('emprestimo_id inválido.');
-            if ($valor <= 0) throw new InvalidArgumentException('valor_pago inválido.');
-            if (!in_array($tipo, ['JUROS','PARCELA','INTEGRAL','EXTRA'], true)) {
+
+            // ✅ inclui QUITACAO
+            if (!in_array($tipo, ['JUROS', 'PARCELA', 'INTEGRAL', 'EXTRA', 'QUITACAO'], true)) {
                 throw new InvalidArgumentException('tipo_pagamento inválido.');
             }
 
             $pagDAO = new PagamentoDAO();
             $parDAO = new ParcelaDAO();
             $empDAO = new EmprestimoDAO();
+
+            // ✅ QUITACAO: backend calcula o valor real (não confia no front)
+            if ($tipo === 'QUITACAO') {
+                // 1) saldo das parcelas (principal em aberto)
+                $parcelasAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
+            
+                $faltanteParcelas = 0.0;
+                foreach ($parcelasAbertas as $parcela) {
+                    $faltante = (float)$parcela['valor_parcela'] - (float)$parcela['valor_pago'];
+                    if ($faltante > 0) $faltanteParcelas += $faltante;
+                }
+            
+                // 2) juros faltante (JUROS total - JUROS pago)
+                $emp = $empDAO->buscarPorId($emprestimoId);
+                if (!$emp) throw new RuntimeException('Empréstimo não encontrado.');
+            
+                $principal = (float)$emp->getValorPrincipal();
+                $jurosPct  = (float)$emp->getPorcentagemJuros();
+            
+                $jurosTotal = $principal * ($jurosPct / 100);
+            
+                // soma pagamentos do tipo JUROS
+                $jurosPago = $pagDAO->somarPorEmprestimoETipo($emprestimoId, 'JUROS');
+            
+                $faltanteJuros = $jurosTotal - $jurosPago;
+                if ($faltanteJuros < 0) $faltanteJuros = 0; // não deixa negativo
+            
+                // 3) total quitação
+                $totalQuitacao = $faltanteParcelas + $faltanteJuros;
+            
+                if ($totalQuitacao <= 0) {
+                    throw new InvalidArgumentException('Não há saldo pendente para quitar.');
+                }
+            
+                $valor = $totalQuitacao;
+            
+                if (!$obs) {
+                    $obs = 'Quitação total (parcelas + juros)';
+                }
+            }
+            
+
+            // ✅ valida valor (mas QUITACAO já foi calculado acima)
+            if ($valor <= 0) throw new InvalidArgumentException('valor_pago inválido.');
 
             // 1) registra pagamento
             $p = new Pagamento();
@@ -42,8 +87,7 @@ class PagamentoController
                 $parDAO->adicionarPagamentoNaParcela($parcelaId, $valor);
             }
 
-            if ($tipo === 'INTEGRAL') {
-                // paga todas as parcelas abertas (uma por uma, sem matemática pesada)
+            if ($tipo === 'INTEGRAL' || $tipo === 'QUITACAO') {
                 $parcelas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
 
                 foreach ($parcelas as $parcela) {
@@ -53,14 +97,14 @@ class PagamentoController
                     }
                 }
 
-                // marca empréstimo quitado
                 $empDAO->atualizarStatus($emprestimoId, 'QUITADO');
             }
 
-            // JUROS/EXTRA só registra no histórico (não mexe em parcela)
-
-            $this->responderJson(true, 'Pagamento lançado', ['pagamento_id' => $pagId]);
-
+            $this->responderJson(true, 'Pagamento lançado', [
+                'pagamento_id' => $pagId,
+                'valor_pago' => $valor,
+                'tipo_pagamento' => $tipo
+            ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
@@ -76,5 +120,4 @@ class PagamentoController
         ]);
         exit;
     }
-
 }

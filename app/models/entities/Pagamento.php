@@ -6,7 +6,7 @@ class Pagamento
     private int $emprestimoId;
     private ?int $parcelaId = null;
     private float $valorPago;
-    private string $tipoPagamento; // JUROS | PARCELA | INTEGRAL | EXTRA
+    private string $tipoPagamento; 
     private ?string $observacao = null;
 
     public function setEmprestimoId(int $id): void
