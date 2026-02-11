@@ -103,15 +103,15 @@
             if (key === "novoEmprestimo") {
                 const clienteId = openEl.dataset.clienteId || "";
                 const clienteNome = openEl.dataset.clienteNome || "";
-              
+
                 if (typeof window.openNovoEmprestimo === "function") {
-                  window.openNovoEmprestimo({ clienteId, clienteNome });
+                    window.openNovoEmprestimo({ clienteId, clienteNome });
                 } else {
-                  onError("Função openNovoEmprestimo() não encontrada.");
+                    onError("Função openNovoEmprestimo() não encontrada.");
                 }
                 return;
-              }
-              
+            }
+
 
             /* =========================
                DETALHES EMPRÉSTIMO
@@ -129,16 +129,29 @@
             }
 
             /* =========================
-               LANÇAR PAGAMENTO
+                LANÇAR PAGAMENTO
             ========================= */
             if (key === "lancarPagamento") {
-                if (typeof window.openLancamentoPagamento === "function") {
-                    window.openLancamentoPagamento(openEl.dataset);
+                // fecha o modal que estiver aberto (detalhes cliente / detalhes empréstimo)
+                const detCli = document.getElementById("modalDetalhesCliente");
+                const detEmp = document.getElementById("modalDetalhesEmprestimo");
+
+                if (detCli && detCli.getAttribute("aria-hidden") === "false") {
+                    GestorModal.close("modalDetalhesCliente");
+                }
+                if (detEmp && detEmp.getAttribute("aria-hidden") === "false") {
+                    GestorModal.close("modalDetalhesEmprestimo");
+                }
+
+                // abre o modal pagamento corretamente
+                if (typeof window.openLancarPagamento === "function") {
+                    window.openLancarPagamento(openEl); // ✅ passa o elemento, não dataset
                 } else {
-                    onError("Função openLancamentoPagamento() não encontrada.");
+                    onError("Função openLancarPagamento() não encontrada.");
                 }
                 return;
             }
+
 
             // fallback: abre direto pelo id do modal (se key == id)
             GestorModal.open(key);

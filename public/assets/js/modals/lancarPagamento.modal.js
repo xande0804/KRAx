@@ -1,9 +1,68 @@
-// public/assets/js/modals/lancarPagamento.modal.js
 (function () {
   const qs = window.qs;
-  const onSuccess = window.onSuccess || function () {};
-  const onError = window.onError || function () {};
+  const onSuccess = window.onSuccess || function () { };
+  const onError = window.onError || function () { };
   const GestorModal = window.GestorModal;
+
+  function money(v) {
+    const num = Number(v);
+    if (Number.isFinite(num)) {
+      return num.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+    }
+    const s = String(v ?? "");
+    return s.includes("R$") ? s : (s ? `R$ ${s}` : "—");
+  }
+
+  function toNumber(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function calcValoresEmprestimo(emp, pagamentos) {
+    const principal = toNumber(emp.valor_principal);
+    const jurosPct = toNumber(emp.porcentagem_juros);
+    const qtd = Math.max(1, toNumber(emp.quantidade_parcelas));
+
+    const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
+
+    let prestacao = 0;
+    let totalComJuros = 0;
+    let jurosPrestacao = 0;
+
+    if (tipoV === "MENSAL") {
+      // ✅ mensal: juros inteiro em cada prestação
+      const jurosInteiro = principal * (jurosPct / 100);
+      prestacao = (principal / qtd) + jurosInteiro;
+      totalComJuros = prestacao * qtd;
+      jurosPrestacao = jurosInteiro;
+    } else {
+      // ✅ diário e semanal: juros distribuído
+      totalComJuros = principal * (1 + jurosPct / 100);
+      prestacao = totalComJuros / qtd;
+      jurosPrestacao = (principal * (jurosPct / 100)) / qtd;
+    }
+
+    const totalPago = Array.isArray(pagamentos)
+      ? pagamentos.reduce((acc, pg) => acc + toNumber(pg.valor_pago || pg.valor), 0)
+      : 0;
+
+    const saldoQuitacao = Math.max(0, totalComJuros - totalPago);
+
+    return { principal, jurosPct, qtd, tipoV, prestacao, totalComJuros, jurosPrestacao, totalPago, saldoQuitacao };
+  }
+
+  function closeAnyOpenModal() {
+    // tenta fechar qualquer modal “aberto”
+    document.querySelectorAll(".modal").forEach((m) => {
+      const isHidden = m.getAttribute("aria-hidden");
+      if (isHidden === "false") {
+        const id = m.id;
+        if (id && GestorModal && typeof GestorModal.close === "function") {
+          GestorModal.close(id);
+        }
+      }
+    });
+  }
 
   function injectModalLancamentoPagamento() {
     if (qs("#modalLancarPagamento")) return;
@@ -41,11 +100,12 @@
             <div class="field form-span-2">
               <label>Tipo de pagamento</label>
               <select name="tipo_pagamento" data-pay="tipo_pagamento" required>
-                <option value="PARCELA">Parcela</option>
+                <option value="PARCELA">Prestação</option>
                 <option value="JUROS">Apenas juros</option>
-                <option value="INTEGRAL">Valor integral (quitação)</option>
-                <option value="EXTRA">Multa</option>
+                <option value="QUITACAO">Quitação (total)</option>
+                <option value="EXTRA">Valor Parcial</option>
               </select>
+              <div class="muted" style="margin-top:6px;" data-pay="hint"></div>
             </div>
 
             <div class="field">
@@ -96,7 +156,7 @@
         GestorModal.close("modalLancarPagamento");
         form.reset();
 
-        // ✅ aqui você já tem seu esquema de reload/refresh nos modais
+        // ✅ mantém seu padrão
         onSuccess("Pagamento lançado!", { reload: true });
       } catch (err) {
         console.error(err);
@@ -105,9 +165,12 @@
     });
   }
 
-  function openLancarPagamento(dataset) {
+  function openLancarPagamento(openEl) {
     const modal = document.getElementById("modalLancarPagamento");
     if (!modal) return;
+
+    // ✅ fecha qualquer modal aberto antes de abrir este
+    closeAnyOpenModal();
 
     const setPay = (field, value) => {
       const el = modal.querySelector(`[data-pay="${field}"]`);
@@ -115,25 +178,119 @@
       el.value = value ?? "";
     };
 
-    setPay("cliente_nome", dataset.clienteNome || "—");
-    setPay("emprestimo_info", dataset.emprestimoInfo || "—");
-    setPay("emprestimo_id", dataset.emprestimoId || "");
-    setPay("parcela_id", dataset.parcelaId || "");
+    const setHint = (text) => {
+      const el = modal.querySelector(`[data-pay="hint"]`);
+      if (el) el.textContent = text || "";
+    };
 
-    if (dataset.tipoPadrao) setPay("tipo_pagamento", dataset.tipoPadrao);
-    if (dataset.valorPadrao) setPay("valor_pago", dataset.valorPadrao);
+    const valorInput = modal.querySelector(`[data-pay="valor_pago"]`);
+    const tipoSelect = modal.querySelector(`[data-pay="tipo_pagamento"]`);
 
+    // dados base vindos do botão
+    const emprestimoId = openEl.dataset.emprestimoId || "";
+    const parcelaId = openEl.dataset.parcelaId || "";
+
+    setPay("cliente_nome", openEl.dataset.clienteNome || "—");
+    setPay("emprestimo_info", openEl.dataset.emprestimoInfo || "—");
+    setPay("emprestimo_id", openEl.dataset.emprestimoId || "");
+    setPay("parcela_id", openEl.dataset.parcelaId || "");
+
+    // tipo padrão
+    if (openEl.dataset.tipoPadrao) setPay("tipo_pagamento", openEl.dataset.tipoPadrao);
+
+    // data padrão hoje
     const today = new Date().toISOString().slice(0, 10);
-    setPay("data_pagamento", dataset.dataPadrao || today);
+    setPay("data_pagamento", openEl.dataset.dataPadrao || today);
 
-    GestorModal.open("modalLancarPagamento");
+    // ✅ vamos buscar os dados do empréstimo pra calcular valores
+    async function hydrateValores() {
+      // fallback: se não tiver emprestimoId, só abre do jeito antigo
+      if (!emprestimoId) {
+        if (openEl.dataset.valorPadrao) setPay("valor_pago", openEl.dataset.valorPadrao);
+        setHint("");
+        GestorModal.open("modalLancarPagamento");
+        return;
+      }
+
+      try {
+        const res = await fetch(`/KRAx/public/api.php?route=emprestimos/detalhes&id=${encodeURIComponent(emprestimoId)}`);
+        const json = await res.json();
+
+        if (!json.ok) {
+          onError(json.mensagem || "Erro ao buscar empréstimo");
+          GestorModal.open("modalLancarPagamento");
+          return;
+        }
+
+        const dados = json.dados || {};
+        const emp = dados.emprestimo || {};
+        const cli = dados.cliente || {};
+        const pagamentos = Array.isArray(dados.pagamentos) ? dados.pagamentos : [];
+
+        // atualiza textos caso tenha vindo vazio
+        if (cli.nome) setPay("cliente_nome", cli.nome);
+        const info = `${money(emp.valor_principal)} • ${emp.quantidade_parcelas || "—"} prestações`;
+        setPay("emprestimo_info", openEl.dataset.emprestimoInfo || info);
+
+        const c = calcValoresEmprestimo(emp, pagamentos);
+
+        // guarda cache no modal (pra usar no change)
+        modal.dataset.prestacao = String(c.prestacao);
+        modal.dataset.jurosPrestacao = String(c.jurosPrestacao);
+        modal.dataset.saldoQuitacao = String(c.saldoQuitacao);
+
+        function applyTipo(tipo) {
+          const t = String(tipo || "").toUpperCase();
+          const prest = toNumber(modal.dataset.prestacao);
+          const juros = toNumber(modal.dataset.jurosPrestacao);
+          const saldo = toNumber(modal.dataset.saldoQuitacao);
+
+          // default
+          if (valorInput) {
+            valorInput.required = true;
+            valorInput.readOnly = false;
+          }
+
+          if (t === "PARCELA") {
+            setPay("valor_pago", prest.toFixed(2).replace(".", ","));
+            setHint(`Prestação sugerida: ${money(prest)}`);
+          } else if (t === "JUROS") {
+            setPay("valor_pago", juros.toFixed(2).replace(".", ","));
+            setHint(`Juros desta prestação: ${money(juros)}`);
+          } else if (t === "QUITACAO" || t === "INTEGRAL") {
+            // você pediu: ou não mostrar valor, ou já mostrar total pra quitar.
+            // Vou deixar preenchido + readonly (menos chance de erro).
+            setPay("valor_pago", saldo.toFixed(2).replace(".", ","));
+            setHint(`Quitação (saldo estimado): ${money(saldo)}`);
+            if (valorInput) valorInput.readOnly = true;
+          } else if (t === "EXTRA") {
+            setPay("valor_pago", "");
+            setHint(`Valor parcial (preencha manualmente).`);
+          } else {
+            setPay("valor_pago", "");
+            setHint("");
+          }
+        }
+
+        // aplica no tipo atual
+        applyTipo(tipoSelect ? tipoSelect.value : "PARCELA");
+
+        // escuta mudança de tipo
+        if (tipoSelect) {
+          tipoSelect.onchange = () => applyTipo(tipoSelect.value);
+        }
+
+        GestorModal.open("modalLancarPagamento");
+      } catch (e) {
+        console.error(e);
+        onError("Erro de rede ao buscar empréstimo.");
+        GestorModal.open("modalLancarPagamento");
+      }
+    }
+
+    hydrateValores();
   }
 
   window.injectModalLancamentoPagamento = injectModalLancamentoPagamento;
-
-  // ✅ o index.js chama openLancamentoPagamento(dataset)
-  window.openLancamentoPagamento = openLancarPagamento;
-
-  // (opcional) manter o nome antigo também, se você já usou em algum lugar
   window.openLancarPagamento = openLancarPagamento;
 })();

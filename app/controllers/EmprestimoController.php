@@ -52,14 +52,28 @@ class EmprestimoController
                 $valorPrestacao = $totalComJuros / $qtd;
             }
 
-            $valorParcela = round($valorPrestacao, 2);
+            $principal = (float)$dto->valor_principal;
+            $qtd = (int)$dto->quantidade_parcelas;
+            $jurosPct = (float)$dto->porcentagem_juros;
+
+            $tipoV = strtoupper($dto->tipo_vencimento);
+
+            // prestação fixa
+            if ($tipoV === 'MENSAL') {
+                $valorPrestacao = ($principal / $qtd) + ($principal * ($jurosPct / 100));
+            } else { // DIARIO e SEMANAL
+                $valorPrestacao = ($principal / $qtd) + (($principal * ($jurosPct / 100)) / $qtd);
+            }
+
+            $valorPrestacao = round($valorPrestacao, 2);
+
 
 
             for ($i = 1; $i <= $dto->quantidade_parcelas; $i++) {
                 $p = new Parcela();
                 $p->setEmprestimoId($emprestimoId);
                 $p->setNumeroParcela($i);
-                $p->setValorParcela($valorParcela);
+                $p->setValorParcela($valorPrestacao);
                 $p->setValorPago(0);
                 $p->setStatus('ABERTA');
                 $p->setDataVencimento(
@@ -144,7 +158,7 @@ class EmprestimoController
         }
     }
 
-    public function vencimentosSemana(): void
+    /*public function vencimentosSemana(): void
     {
         try {
             $dataStr = $_GET['data'] ?? date('Y-m-d');
@@ -161,7 +175,7 @@ class EmprestimoController
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
-    }
+    }*/
 
     private function mapVencimentos(array $lista): array
     {

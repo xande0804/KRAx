@@ -181,13 +181,32 @@
       set("cliente_nome", cli.nome || "—");
       set("cliente_tel", cli.telefone || "—");
 
-      // ====== PRESTAÇÃO (principal + juros) / parcelas ======
+      // ====== CÁLCULO (bate com o backend) ======
       const principal = Number(emp.valor_principal ?? 0);
       const jurosPct = Number(emp.porcentagem_juros ?? 0);
 
       const totalParcelas = Number(emp.quantidade_parcelas ?? parcelas.length ?? 0) || 1;
-      const totalComJuros = principal * (1 + jurosPct / 100);
-      const valorPrestacao = totalParcelas > 0 ? (totalComJuros / totalParcelas) : totalComJuros;
+
+      const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
+      const tipoTxt = tipoV === "DIARIO" ? "Diário" : tipoV === "SEMANAL" ? "Semanal" : "Mensal";
+      set("tipo_venc", tipoTxt);
+
+      let valorPrestacao = 0;
+      let totalComJuros = 0;
+
+      if (tipoV === "MENSAL") {
+        // ✅ MENSAL (como no backend):
+        // prestação = (principal/qtd) + (principal * juros)
+        const jurosInteiro = principal * (jurosPct / 100);
+        valorPrestacao = (principal / totalParcelas) + jurosInteiro;
+
+        // total final pago (pra mostrar no "Total com juros"):
+        totalComJuros = valorPrestacao * totalParcelas;
+      } else {
+        // ✅ DIARIO e SEMANAL (mantém o antigo):
+        totalComJuros = principal * (1 + jurosPct / 100);
+        valorPrestacao = totalComJuros / totalParcelas;
+      }
 
       // KPI "Valor" = principal + hint da prestação
       set("valor", money(principal));
@@ -203,10 +222,6 @@
       }).length;
 
       set("parcelas", `${pagas} / ${totalParcelas || 0}`);
-
-      const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
-      const tipoTxt = tipoV === "DIARIO" ? "Diário" : tipoV === "SEMANAL" ? "Semanal" : "Mensal";
-      set("tipo_venc", tipoTxt);
 
       const st = statusBadge(emp.status);
       const statusEl = modal.querySelector(`[data-loan="status"]`);
@@ -303,6 +318,8 @@
               const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
               const venc = formatDateBR(p.data_vencimento ?? p.dataVencimento);
 
+              const parcelaId = p.id ?? p.parcela_id ?? ""; // garante pegar o id da parcela vindo do backend
+
               const val = money(valorPrestacao);
 
               const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
@@ -314,17 +331,19 @@
               const dotCls = isPaga ? "inst-dot--ok" : isAtrasada ? "inst-dot--danger" : "";
 
               return `
-                <div class="installment-row">
-                  <div class="inst-left">
-                    <span class="inst-dot ${dotCls}"></span>
-                    <span class="inst-title">Prestação ${esc(num)}</span>
+                  <div class="installment-row">
+                    <div class="inst-left">
+                      <span class="inst-dot ${dotCls}"></span>
+                      <span class="inst-title">Prestação ${esc(num)}</span>
+                    </div>
+
+                    <div class="inst-right">
+                      <span>${esc(venc)}</span>
+                      <span class="inst-value">${esc(val)}</span>
+                    </div>
                   </div>
-                  <div class="inst-right">
-                    <span>${esc(venc)}</span>
-                    <span class="inst-value">${esc(val)}</span>
-                  </div>
-                </div>
-              `;
+                `;
+
             })
             .join("");
         }
@@ -339,9 +358,11 @@
             .map((pg) => {
               const tipoRaw = String(pg.tipo_pagamento || pg.tipo || "Pagamento").trim().toUpperCase();
               const tipo =
+                tipoRaw === "PARCELA" ? "Prestação" :
+                tipoRaw === "JUROS" ? "Juros" :
                 tipoRaw === "QUITACAO" ? "Quitação de dívida" :
-                  tipoRaw === "INTEGRAL" ? "Pagamento integral" :
-                    tipoRaw;
+                tipoRaw === "INTEGRAL" ? "Pagamento integral" :
+                tipoRaw;
 
               const data = formatDateBR(pg.data_pagamento || pg.data);
               const val = money(pg.valor_pago || pg.valor);
