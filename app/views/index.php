@@ -49,17 +49,17 @@ require __DIR__ . '/layouts/header.php';
   <h2 class="section-title">Ações rápidas</h2>
 
   <div class="grid grid--4 gap-16">
-    <a class="action-card" href="clientes.php">
+    <a class="action-card" href="/KRAx/app/views/clientes.php">
       <div class="action-card__icon">👥</div>
       <div class="action-card__title">Clientes</div>
     </a>
 
-    <a class="action-card" href="emprestimos.php">
+    <a class="action-card" href="/KRAx/app/views/emprestimos.php">
       <div class="action-card__icon">💸</div>
       <div class="action-card__title">Empréstimos</div>
     </a>
 
-    <a class="action-card" href="vencimentos.php">
+    <a class="action-card" href="/KRAx/app/views/vencimentos.php">
       <div class="action-card__icon">📅</div>
       <div class="action-card__title">Vencimentos</div>
     </a>
