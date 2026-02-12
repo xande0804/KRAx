@@ -4,7 +4,6 @@ $pageJs = $pageJs ?? [];
 </main>
 
 <!-- JS base (sempre carregados) -->
-<script src="../../public/assets/js/app.js"></script>
 <script src="../../public/assets/js/ux/toast.js"></script>
 <script src="../../public/assets/js/modals/core.js"></script>
 <script src="../../public/assets/js/utils/masks.js"></script>

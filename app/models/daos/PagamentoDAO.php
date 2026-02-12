@@ -14,13 +14,16 @@ class PagamentoDAO
 
     public function criar(Pagamento $p): int
     {
-        $sql = "INSERT INTO pagamentos (emprestimo_id, parcela_id, valor_pago, tipo_pagamento, observacao)
-                VALUES (:emprestimo_id, :parcela_id, :valor_pago, :tipo_pagamento, :observacao)";
+        $sql = "INSERT INTO pagamentos 
+                    (emprestimo_id, parcela_id, data_pagamento, valor_pago, tipo_pagamento, observacao)
+                VALUES 
+                    (:emprestimo_id, :parcela_id, :data_pagamento, :valor_pago, :tipo_pagamento, :observacao)";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
             ':emprestimo_id'  => $p->getEmprestimoId(),
             ':parcela_id'     => $p->getParcelaId(),
+            ':data_pagamento' => $p->getDataPagamento(), // ✅ agora salva a data correta
             ':valor_pago'     => $p->getValorPago(),
             ':tipo_pagamento' => $p->getTipoPagamento(),
             ':observacao'     => $p->getObservacao(),
@@ -32,9 +35,9 @@ class PagamentoDAO
     public function listarPorEmprestimo(int $emprestimoId): array
     {
         $sql = "SELECT id, parcela_id, data_pagamento, valor_pago, tipo_pagamento, observacao
-            FROM pagamentos
-            WHERE emprestimo_id = :eid
-            ORDER BY data_pagamento DESC";
+                FROM pagamentos
+                WHERE emprestimo_id = :eid
+                ORDER BY data_pagamento DESC, id DESC";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([':eid' => $emprestimoId]);
@@ -44,9 +47,9 @@ class PagamentoDAO
     public function somarPorEmprestimoETipo(int $emprestimoId, string $tipo): float
     {
         $sql = "SELECT COALESCE(SUM(valor_pago), 0) AS total
-            FROM pagamentos
-            WHERE emprestimo_id = :id
-              AND UPPER(tipo_pagamento) = :tipo";
+                FROM pagamentos
+                WHERE emprestimo_id = :id
+                  AND UPPER(tipo_pagamento) = :tipo";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([

@@ -13,6 +13,11 @@
     return s.includes("R$") ? s : (s ? `R$ ${s}` : "—");
   }
 
+  function toNumber(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
   function esc(s) {
     return String(s ?? "")
       .replaceAll("&", "&amp;")
@@ -77,6 +82,7 @@
             <div class="kpi">
               <div class="kpi__label" data-loan="juros_label">Total com juros</div>
               <div class="kpi__value" data-loan="total_juros">—</div>
+              <div class="kpi__hint" data-loan="saldo_hint">Pago: — • Falta: —</div>
             </div>
 
             <div class="kpi">
@@ -135,6 +141,9 @@
     const id = String(emprestimoId || "");
     if (!id) return;
 
+    // ✅ guarda qual empréstimo está aberto (pra retorno do pagamento)
+    modal.dataset.emprestimoId = id;
+
     // guarda contexto (de onde veio)
     const origem = (ctx && ctx.origem) ? String(ctx.origem) : "emprestimos";
     const clienteIdCtx = (ctx && ctx.clienteId) ? String(ctx.clienteId) : "";
@@ -153,6 +162,7 @@
     set("prestacao_hint", "Prestação: —");
     set("juros_label", "Total com juros");
     set("total_juros", "—");
+    set("saldo_hint", "Pago: — • Falta: —");
     set("parcelas", "—");
     set("tipo_venc", "—");
     set("status", "—");
@@ -181,10 +191,8 @@
       set("cliente_nome", cli.nome || "—");
       set("cliente_tel", cli.telefone || "—");
 
-      // ====== CÁLCULO (bate com o backend) ======
-      const principal = Number(emp.valor_principal ?? 0);
-      const jurosPct = Number(emp.porcentagem_juros ?? 0);
-
+      const principal = toNumber(emp.valor_principal ?? 0);
+      const jurosPct = toNumber(emp.porcentagem_juros ?? 0);
       const totalParcelas = Number(emp.quantidade_parcelas ?? parcelas.length ?? 0) || 1;
 
       const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
@@ -195,29 +203,30 @@
       let totalComJuros = 0;
 
       if (tipoV === "MENSAL") {
-        // ✅ MENSAL (como no backend):
-        // prestação = (principal/qtd) + (principal * juros)
         const jurosInteiro = principal * (jurosPct / 100);
         valorPrestacao = (principal / totalParcelas) + jurosInteiro;
-
-        // total final pago (pra mostrar no "Total com juros"):
         totalComJuros = valorPrestacao * totalParcelas;
       } else {
-        // ✅ DIARIO e SEMANAL (mantém o antigo):
         totalComJuros = principal * (1 + jurosPct / 100);
         valorPrestacao = totalComJuros / totalParcelas;
       }
 
-      // KPI "Valor" = principal + hint da prestação
+      const totalPago = pagamentos.reduce((acc, pg) => {
+        return acc + toNumber(pg.valor_pago ?? pg.valor ?? 0);
+      }, 0);
+
+      const saldo = Math.max(0, totalComJuros - totalPago);
+
       set("valor", money(principal));
       set("prestacao_hint", `Prestação: ${money(valorPrestacao)}`);
 
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
       set("total_juros", money(totalComJuros));
+      set("saldo_hint", `Pago: ${money(totalPago)} • Falta: ${money(saldo)}`);
 
       const pagas = parcelas.filter((p) => {
         const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
-        const valorPago = Number(p.valor_pago ?? p.valorPago ?? 0);
+        const valorPago = toNumber(p.valor_pago ?? p.valorPago ?? 0);
         return st === "PAGA" || st === "QUITADA" || valorPago > 0;
       }).length;
 
@@ -235,7 +244,6 @@
 
       const statusAtual = String(emp.status || "").trim().toUpperCase();
 
-      // esconder ações se quitado
       const btnPay = modal.querySelector("#btnPayFromLoan");
       const btnQuit = modal.querySelector("#btnMarkQuitado");
 
@@ -247,17 +255,22 @@
         if (btnQuit) btnQuit.style.display = "";
       }
 
-      // botão "Lançar pagamento" dentro do detalhes
       if (btnPay) {
         btnPay.dataset.emprestimoId = id;
         btnPay.dataset.clienteNome = cli.nome || "";
         btnPay.dataset.emprestimoInfo = `${money(principal)} - ${pagas}/${totalParcelas} parcelas`;
         btnPay.dataset.tipoPadrao = "PARCELA";
+
+        // ✅ origem pra abrir pagamento
         btnPay.dataset.origem = modal.dataset.origem || "emprestimos";
         btnPay.dataset.clienteId = modal.dataset.clienteId || String(emp.cliente_id || "");
+
+        // ✅ retorno
+        btnPay.dataset.returnTo = "detalhesEmprestimo";
+        btnPay.dataset.returnEmprestimoId = id;
+        btnPay.dataset.returnClienteId = btnPay.dataset.clienteId || "";
       }
 
-      // botão "Marcar como quitado"
       if (btnQuit) {
         btnQuit.disabled = statusAtual === "QUITADO";
 
@@ -273,7 +286,7 @@
             const fd = new FormData();
             fd.append("emprestimo_id", id);
             fd.append("tipo_pagamento", "QUITACAO");
-            fd.append("valor_pago", "1"); // backend calcula o valor real
+            fd.append("valor_pago", "1");
             fd.append("observacao", "Quitação de dívida");
 
             const r = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
@@ -308,7 +321,6 @@
         };
       }
 
-      // ====== Prestações (exibe valor da PRESTAÇÃO) ======
       if (installments) {
         if (!parcelas.length) {
           installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma prestação encontrada.</div>`;
@@ -318,12 +330,10 @@
               const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
               const venc = formatDateBR(p.data_vencimento ?? p.dataVencimento);
 
-              const parcelaId = p.id ?? p.parcela_id ?? ""; // garante pegar o id da parcela vindo do backend
-
               const val = money(valorPrestacao);
 
               const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
-              const valorPago = Number(p.valor_pago ?? 0);
+              const valorPago = toNumber(p.valor_pago ?? 0);
 
               const isPaga = stp === "PAGA" || stp === "QUITADA" || valorPago > 0;
               const isAtrasada = stp === "ATRASADO";
@@ -343,13 +353,11 @@
                     </div>
                   </div>
                 `;
-
             })
             .join("");
         }
       }
 
-      // Pagamentos
       if (payHist) {
         if (!pagamentos.length) {
           payHist.innerHTML = `<div class="muted" style="padding:10px;">Nenhum pagamento registrado.</div>`;
@@ -359,10 +367,10 @@
               const tipoRaw = String(pg.tipo_pagamento || pg.tipo || "Pagamento").trim().toUpperCase();
               const tipo =
                 tipoRaw === "PARCELA" ? "Prestação" :
-                tipoRaw === "JUROS" ? "Juros" :
-                tipoRaw === "QUITACAO" ? "Quitação de dívida" :
-                tipoRaw === "INTEGRAL" ? "Pagamento integral" :
-                tipoRaw;
+                  tipoRaw === "JUROS" ? "Juros" :
+                    tipoRaw === "QUITACAO" ? "Quitação de dívida" :
+                      tipoRaw === "INTEGRAL" ? "Pagamento integral" :
+                        tipoRaw;
 
               const data = formatDateBR(pg.data_pagamento || pg.data);
               const val = money(pg.valor_pago || pg.valor);

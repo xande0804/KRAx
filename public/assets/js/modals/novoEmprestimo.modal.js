@@ -5,6 +5,10 @@
   const toast = window.toast || function () { };
   const GestorModal = window.GestorModal;
 
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
   function injectModalNovoEmprestimo() {
     if (qs("#modalNovoEmprestimo")) return;
 
@@ -55,18 +59,18 @@
 
             <div class="field form-span-2">
               <label>Tipo de vencimento</label>
-              <select name="tipo_vencimento" required>
-              <option value="DIARIO">Diário</option>
-              <option value="SEMANAL">Semanal</option>
-              <option value="MENSAL">Mensal</option>
+              <select name="tipo_vencimento" required id="tipoVencimentoNovoEmprestimo">
+                <option value="DIARIO">Diário</option>
+                <option value="SEMANAL">Semanal</option>
+                <option value="MENSAL">Mensal</option>
               </select>
             </div>
 
-            <div class="field form-span-2">
-              <label>Dia do mês</label>
-              <select name="regra_vencimento" required>
-                ${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}">Dia ${i + 1}</option>`).join("")}
-              </select>
+            <!-- ✅ Aqui vira dinâmico -->
+            <div class="field form-span-2" id="wrapRegraVencimento">
+              <label id="labelRegraVencimento">Primeiro vencimento</label>
+              <input type="date" name="regra_vencimento" required id="regraVencimentoInput" />
+              <div class="muted" style="margin-top:6px;" id="hintRegraVencimento"></div>
             </div>
 
           </div>
@@ -81,10 +85,96 @@
 
     document.body.appendChild(modal);
 
-    // SUBMIT (backend)
     const form = qs("#formNovoEmprestimo");
     const btnSubmit = qs("#btnSubmitNovoEmprestimo");
 
+    const tipoSel = modal.querySelector("#tipoVencimentoNovoEmprestimo");
+    const wrapRegra = modal.querySelector("#wrapRegraVencimento");
+    const labelRegra = modal.querySelector("#labelRegraVencimento");
+    const hintRegra = modal.querySelector("#hintRegraVencimento");
+    const inputDataEmp = modal.querySelector('input[name="data_emprestimo"]');
+
+    function setHint(txt) {
+      if (hintRegra) hintRegra.textContent = txt || "";
+    }
+
+    function renderRegraField() {
+      const tipo = String(tipoSel ? tipoSel.value : "DIARIO").toUpperCase();
+
+      if (!wrapRegra) return;
+
+      // Limpa e recria o campo (pra não ficar com name errado)
+      wrapRegra.innerHTML = `
+        <label id="labelRegraVencimento"></label>
+        <div id="regraFieldSlot"></div>
+        <div class="muted" style="margin-top:6px;" id="hintRegraVencimento"></div>
+      `;
+
+      const label = wrapRegra.querySelector("#labelRegraVencimento");
+      const slot = wrapRegra.querySelector("#regraFieldSlot");
+      const hint = wrapRegra.querySelector("#hintRegraVencimento");
+
+      function hintSet(t) { if (hint) hint.textContent = t || ""; }
+
+      const baseDate = (inputDataEmp && inputDataEmp.value) ? inputDataEmp.value : todayISO();
+
+      if (tipo === "SEMANAL") {
+        if (label) label.textContent = "Dia da semana";
+        if (slot) {
+          slot.innerHTML = `
+            <select name="regra_vencimento" required id="regraVencimentoSelect">
+              <option value="1">Segunda</option>
+              <option value="2">Terça</option>
+              <option value="3">Quarta</option>
+              <option value="4">Quinta</option>
+              <option value="5">Sexta</option>
+              <option value="6">Sábado</option>
+            </select>
+          `;
+        }
+        hintSet("Primeira prestação será no mínimo daqui 7 dias e cairá no dia selecionado (sem domingo).");
+      } else {
+        // DIARIO e MENSAL: date
+        if (label) label.textContent = "Primeiro vencimento";
+        if (slot) {
+          slot.innerHTML = `
+            <input type="date" name="regra_vencimento" required id="regraVencimentoDate" />
+          `;
+        }
+
+        const dateEl = wrapRegra.querySelector("#regraVencimentoDate");
+        if (dateEl) {
+          // default: mesma data do empréstimo (ou hoje)
+          dateEl.value = baseDate;
+          dateEl.min = baseDate; // ✅ não deixa escolher menor que data do empréstimo
+        }
+
+        hintSet(tipo === "MENSAL"
+          ? "Escolha a data do primeiro vencimento. As próximas parcelas serão mês a mês."
+          : "Escolha a data do primeiro vencimento. As próximas parcelas serão dia a dia."
+        );
+      }
+    }
+
+    if (tipoSel) {
+      tipoSel.addEventListener("change", renderRegraField);
+    }
+
+    if (inputDataEmp) {
+      inputDataEmp.addEventListener("change", () => {
+        // se o campo atual for date, atualiza min e default se necessário
+        const dateEl = modal.querySelector("#regraVencimentoDate");
+        if (dateEl) {
+          const base = inputDataEmp.value || todayISO();
+          dateEl.min = base;
+          if (!dateEl.value || dateEl.value < base) {
+            dateEl.value = base;
+          }
+        }
+      });
+    }
+
+    // SUBMIT (backend)
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
@@ -95,6 +185,17 @@
       }
 
       try {
+        // validação extra: se for date, garante >= data_emprestimo
+        const tipo = String((modal.querySelector('select[name="tipo_vencimento"]')?.value) || "").toUpperCase();
+        const base = modal.querySelector('input[name="data_emprestimo"]')?.value || "";
+        const regraDate = modal.querySelector('input[name="regra_vencimento"][type="date"]')?.value || "";
+
+        if ((tipo === "DIARIO" || tipo === "MENSAL") && base && regraDate && regraDate < base) {
+          if (btnSubmit) btnSubmit.disabled = false;
+          onError("O primeiro vencimento não pode ser menor que a data do empréstimo.");
+          return;
+        }
+
         const fd = new FormData(form);
 
         const res = await fetch("/KRAx/public/api.php?route=emprestimos/criar", {
@@ -110,14 +211,11 @@
           return;
         }
 
-        // ✅ Fecha rápido e navega direto (sem "onSuccess" pra não piscar)
         GestorModal.close("modalNovoEmprestimo");
         form.reset();
 
-        // toast opcional (se existir)
         toast("Empréstimo criado!");
 
-        // ✅ navegação direta (mais rápida / sem delay)
         window.location.href = "emprestimos.php";
       } catch (err) {
         console.error(err);
@@ -125,6 +223,12 @@
         onError("Erro de conexão com o servidor");
       }
     });
+
+    // defaults iniciais
+    const inputData = modal.querySelector('input[name="data_emprestimo"]');
+    if (inputData && !inputData.value) inputData.value = todayISO();
+
+    renderRegraField();
   }
 
   async function loadClientes(selectCliente) {
@@ -153,7 +257,6 @@
 
   // ✅ PADRÃO CERTO: recebe payload { clienteId, clienteNome }
   async function openNovoEmprestimo(payload = {}) {
-    // garante que o modal exista (caso chamem antes de injetar)
     if (!document.getElementById("modalNovoEmprestimo")) {
       injectModalNovoEmprestimo();
     }
@@ -164,7 +267,6 @@
     const selectCliente = modal.querySelector('select[name="cliente_id"]');
     if (!selectCliente) return;
 
-    // reabilita submit caso tenha sido desabilitado numa tentativa anterior
     const btnSubmit = modal.querySelector("#btnSubmitNovoEmprestimo");
     if (btnSubmit) {
       btnSubmit.disabled = false;
@@ -175,7 +277,6 @@
     const clienteNome = String(payload.clienteNome || "");
 
     if (clienteId) {
-      // garante option
       let opt = selectCliente.querySelector(`option[value="${clienteId}"]`);
       if (!opt) {
         opt = document.createElement("option");
@@ -190,16 +291,22 @@
       selectCliente.disabled = false;
       selectCliente.dataset.locked = "1";
     } else {
-      // abriu do zero
       selectCliente.disabled = false;
       selectCliente.removeAttribute("data-locked");
       await loadClientes(selectCliente);
     }
 
-    // data padrão
     const inputData = modal.querySelector('input[name="data_emprestimo"]');
     if (inputData && !inputData.value) {
-      inputData.value = new Date().toISOString().slice(0, 10);
+      inputData.value = todayISO();
+    }
+
+    // re-render (pra ajustar min/default do vencimento)
+    const tipoSel = modal.querySelector('#tipoVencimentoNovoEmprestimo');
+    if (tipoSel) {
+      // dispara renderRegraField via change programático
+      const ev = new Event('change', { bubbles: true });
+      tipoSel.dispatchEvent(ev);
     }
 
     GestorModal.open("modalNovoEmprestimo");

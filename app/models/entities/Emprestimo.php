@@ -9,7 +9,12 @@ class Emprestimo
     private float $porcentagemJuros;
     private int $quantidadeParcelas;
     private string $tipoVencimento; // DIARIO | SEMANAL | MENSAL
-    private ?int $regraVencimento = null; // semanal: 1-7 | mensal: 1-31 | diario: null
+
+    // ✅ agora aceita:
+    // - DIARIO/MENSAL: "YYYY-MM-DD"
+    // - SEMANAL: "1".."6" (Seg..Sáb)
+    private ?string $regraVencimento = null;
+
     private string $status = 'ATIVO'; // ATIVO | QUITADO | CANCELADO
 
     // ===== GETTERS =====
@@ -17,34 +22,42 @@ class Emprestimo
     {
         return $this->id;
     }
+
     public function getClienteId(): int
     {
         return $this->clienteId;
     }
+
     public function getDataEmprestimo(): string
     {
         return $this->dataEmprestimo;
     }
+
     public function getValorPrincipal(): float
     {
         return $this->valorPrincipal;
     }
+
     public function getPorcentagemJuros(): float
     {
         return $this->porcentagemJuros;
     }
+
     public function getQuantidadeParcelas(): int
     {
         return $this->quantidadeParcelas;
     }
+
     public function getTipoVencimento(): string
     {
         return $this->tipoVencimento;
     }
-    public function getRegraVencimento(): ?int
+
+    public function getRegraVencimento(): ?string
     {
         return $this->regraVencimento;
     }
+
     public function getStatus(): string
     {
         return $this->status;
@@ -99,9 +112,15 @@ class Emprestimo
         $this->tipoVencimento = $tipo;
     }
 
-    public function setRegraVencimento(?int $regraVencimento): void
+    public function setRegraVencimento(?string $regraVencimento): void
     {
-        $this->regraVencimento = $regraVencimento;
+        if ($regraVencimento === null) {
+            $this->regraVencimento = null;
+            return;
+        }
+
+        $s = trim((string)$regraVencimento);
+        $this->regraVencimento = ($s === '') ? null : $s;
     }
 
     public function setStatus(string $status): void

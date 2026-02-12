@@ -11,13 +11,23 @@ class PagamentoController
     {
         try {
             $emprestimoId = (int)($_POST['emprestimo_id'] ?? 0);
-            $parcelaId    = isset($_POST['parcela_id']) && $_POST['parcela_id'] !== ''
+
+            $parcelaId = isset($_POST['parcela_id']) && $_POST['parcela_id'] !== ''
                 ? (int)$_POST['parcela_id']
                 : null;
 
-            $tipo  = strtoupper(trim($_POST['tipo_pagamento'] ?? ''));
-            $valor = (float)($_POST['valor_pago'] ?? 0);
-            $obs   = isset($_POST['observacao']) ? trim($_POST['observacao']) : null;
+            $tipo = strtoupper(trim($_POST['tipo_pagamento'] ?? ''));
+
+            // ✅ aceita 0,07 e 1.234,56
+            $valor = $this->parseMoneyBR($_POST['valor_pago'] ?? 0);
+
+            // ✅ data do pagamento (se vier vazio, usa hoje)
+            $dataPagamento = trim((string)($_POST['data_pagamento'] ?? ''));
+            if ($dataPagamento === '') {
+                $dataPagamento = date('Y-m-d');
+            }
+
+            $obs = isset($_POST['observacao']) ? trim($_POST['observacao']) : null;
 
             if ($emprestimoId <= 0) {
                 throw new InvalidArgumentException('emprestimo_id inválido.');
@@ -35,16 +45,12 @@ class PagamentoController
             // QUITAÇÃO: backend calcula o valor real
             // =========================================================
             if ($tipo === 'QUITACAO') {
-
                 $parcelasAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
 
                 $faltanteParcelas = 0.0;
-
                 foreach ($parcelasAbertas as $parcela) {
                     $faltante = (float)$parcela['valor_parcela'] - (float)$parcela['valor_pago'];
-                    if ($faltante > 0) {
-                        $faltanteParcelas += $faltante;
-                    }
+                    if ($faltante > 0) $faltanteParcelas += $faltante;
                 }
 
                 $emp = $empDAO->buscarPorId($emprestimoId);
@@ -59,9 +65,7 @@ class PagamentoController
                 $jurosPago  = $pagDAO->somarPorEmprestimoETipo($emprestimoId, 'JUROS');
 
                 $faltanteJuros = $jurosTotal - $jurosPago;
-                if ($faltanteJuros < 0) {
-                    $faltanteJuros = 0;
-                }
+                if ($faltanteJuros < 0) $faltanteJuros = 0;
 
                 $totalQuitacao = $faltanteParcelas + $faltanteJuros;
 
@@ -93,13 +97,15 @@ class PagamentoController
                     $parcelaId,
                     $tipo,
                     $valor,
+                    $dataPagamento,
                     $obs
                 );
 
                 $this->responderJson(true, 'Pagamento lançado', [
-                    'pagamento_id'  => $pagId,
-                    'valor_pago'    => $valor,
-                    'tipo_pagamento'=> $tipo
+                    'pagamento_id'   => $pagId,
+                    'valor_pago'     => $valor,
+                    'tipo_pagamento' => $tipo,
+                    'data_pagamento' => $dataPagamento,
                 ]);
                 return;
             }
@@ -113,11 +119,11 @@ class PagamentoController
                     null,
                     $tipo,
                     $valor,
+                    $dataPagamento,
                     $obs
                 );
 
                 $parcelas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
-
                 foreach ($parcelas as $parcela) {
                     $faltante = (float)$parcela['valor_parcela'] - (float)$parcela['valor_pago'];
                     if ($faltante > 0) {
@@ -130,7 +136,8 @@ class PagamentoController
                 $this->responderJson(true, 'Pagamento lançado', [
                     'pagamento_id'   => $pagId,
                     'valor_pago'     => $valor,
-                    'tipo_pagamento' => $tipo
+                    'tipo_pagamento' => $tipo,
+                    'data_pagamento' => $dataPagamento,
                 ]);
                 return;
             }
@@ -157,7 +164,6 @@ class PagamentoController
                 $pagamentosCriados = [];
 
                 foreach ($parcelasAbertas as $parcela) {
-
                     if ($restante <= 0) break;
 
                     $idParcela     = (int)$parcela['id'];
@@ -175,6 +181,7 @@ class PagamentoController
                         $idParcela,
                         'PARCELA',
                         $pagarAqui,
+                        $dataPagamento,
                         $obs
                     );
 
@@ -183,7 +190,8 @@ class PagamentoController
                     $pagamentosCriados[] = [
                         'pagamento_id' => $pagId,
                         'parcela_id'   => $idParcela,
-                        'valor_pago'   => $pagarAqui
+                        'valor_pago'   => $pagarAqui,
+                        'data_pagamento' => $dataPagamento,
                     ];
 
                     $restante -= $pagarAqui;
@@ -198,6 +206,7 @@ class PagamentoController
                         null,
                         'EXTRA',
                         $restante,
+                        $dataPagamento,
                         $obsExtra
                     );
 
@@ -205,12 +214,12 @@ class PagamentoController
                         'pagamento_id'   => $pagIdExtra,
                         'parcela_id'     => null,
                         'valor_pago'     => $restante,
-                        'tipo_pagamento' => 'EXTRA'
+                        'tipo_pagamento' => 'EXTRA',
+                        'data_pagamento' => $dataPagamento,
                     ];
                 }
 
                 $aindaAbertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
-
                 if (!$aindaAbertas || count($aindaAbertas) === 0) {
                     $empDAO->atualizarStatus($emprestimoId, 'QUITADO');
                 }
@@ -218,6 +227,7 @@ class PagamentoController
                 $this->responderJson(true, 'Pagamento lançado', [
                     'tipo_pagamento' => 'PARCELA',
                     'valor_total'    => $valor,
+                    'data_pagamento' => $dataPagamento,
                     'pagamentos'     => $pagamentosCriados
                 ]);
                 return;
@@ -236,6 +246,7 @@ class PagamentoController
         ?int $parcelaId,
         string $tipo,
         float $valor,
+        string $dataPagamento,
         ?string $obs
     ): int {
         $p = new Pagamento();
@@ -244,9 +255,39 @@ class PagamentoController
         $p->setParcelaId($parcelaId);
         $p->setValorPago($valor);
         $p->setTipoPagamento($tipo);
+
+        // ✅ ESSENCIAL: evita "Typed property ... must not be accessed"
+        $p->setDataPagamento($dataPagamento);
+
         $p->setObservacao($obs);
 
         return $pagDAO->criar($p);
+    }
+
+    /**
+     * Converte valores do input pt-BR:
+     * "0,07" -> 0.07
+     * "1.234,56" -> 1234.56
+     * "1234.56" -> 1234.56
+     */
+    private function parseMoneyBR($v): float
+    {
+        if (is_int($v) || is_float($v)) return (float)$v;
+
+        $s = trim((string)$v);
+        if ($s === '') return 0.0;
+
+        // remove "R$", espaços e qualquer coisa que não seja número, ponto, vírgula ou sinal
+        $s = str_replace(['R$', ' ', "\u{00A0}"], '', $s);
+        $s = preg_replace('/[^0-9,\.\-]/', '', $s);
+
+        // se tem vírgula, assume vírgula como decimal e remove pontos de milhar
+        if (strpos($s, ',') !== false) {
+            $s = str_replace('.', '', $s);
+            $s = str_replace(',', '.', $s);
+        }
+
+        return (float)$s;
     }
 
     private function responderJson(bool $ok, string $mensagem, $dados = null): void

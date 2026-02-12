@@ -61,6 +61,23 @@
     });
   }
 
+  async function safeReadJson(res) {
+    const text = await res.text();
+
+    try {
+      return { ok: true, json: JSON.parse(text), raw: text };
+    } catch (e) {
+      console.error("❌ Resposta NÃO é JSON. Conteúdo completo abaixo:");
+      console.error(text);
+
+      const snippet = String(text || "")
+        .replace(/\s+/g, " ")
+        .slice(0, 180);
+
+      return { ok: false, error: e, raw: text, snippet };
+    }
+  }
+
   function injectModalLancamentoPagamento() {
     if (qs("#modalLancarPagamento")) return;
 
@@ -89,9 +106,10 @@
               <input name="cliente_nome" data-pay="cliente_nome" readonly value="—" />
             </div>
 
+            <!-- ✅ ÚNICO BLOCO "EMPRÉSTIMO" -->
             <div class="field form-span-2">
               <label>Empréstimo</label>
-              <input name="emprestimo_info" data-pay="emprestimo_info" readonly value="—" />
+              <div class="emprestimo-resumo" data-pay="emprestimo_info">—</div>
             </div>
 
             <div class="field form-span-2">
@@ -131,6 +149,23 @@
 
     document.body.appendChild(modal);
 
+    const setPay = (field, value) => {
+      const el = modal.querySelector(`[data-pay="${field}"]`);
+      if (!el) return;
+
+      const tag = (el.tagName || "").toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
+        el.value = value ?? "";
+      } else {
+        el.innerHTML = value ?? "";
+      }
+    };
+
+    const setHint = (text) => {
+      const el = modal.querySelector(`[data-pay="hint"]`);
+      if (el) el.textContent = text || "";
+    };
+
     const form = qs("#formLancarPagamento");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -145,13 +180,12 @@
           return;
         }
 
-        // ✅ regra do parcela_id:
+        // regra parcela_id:
         // - PARCELA: mantém se tiver (ex: vencimentos), se não tiver deixa vazio (backend distribui).
         // - JUROS / QUITACAO / EXTRA: sempre limpa parcela_id.
         const parcelaHidden = modal.querySelector(`[data-pay="parcela_id"]`);
         if (parcelaHidden) {
           if (tipo === "PARCELA") {
-            // se tiver um default guardado e o campo estiver vazio, aplica
             if (!parcelaHidden.value && modal.dataset.defaultParcelaId) {
               parcelaHidden.value = modal.dataset.defaultParcelaId;
             }
@@ -165,94 +199,78 @@
         const res = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
           method: "POST",
           body: fd,
+          headers: { "Accept": "application/json" }
         });
 
-        const json = await res.json();
+        const parsed = await safeReadJson(res);
+
+        if (!parsed.ok) {
+          onError(`Servidor retornou resposta inválida (não-JSON). Veja o console. ${parsed.snippet ? "Trecho: " + parsed.snippet : ""}`);
+          return;
+        }
+
+        const json = parsed.json;
 
         if (!json.ok) {
           onError(json.mensagem || "Erro ao lançar pagamento");
           return;
         }
 
+        // ✅ sucesso: fecha e RECARREGA A PÁGINA (regra nova)
         GestorModal.close("modalLancarPagamento");
-        form.reset();
-
-        // ✅ refresh inteligente
-        const origem = modal.dataset.origem || "";
-        const empId = modal.dataset.emprestimoId || "";
-        const clienteId = modal.dataset.clienteId || "";
-
-        if (origem === "detalhesEmprestimo" && empId && typeof window.openDetalhesEmprestimo === "function") {
-          window.openDetalhesEmprestimo(empId, { origem: "emprestimos", clienteId });
-        } else if (origem === "detalhesCliente" && clienteId && typeof window.openDetalhesCliente === "function") {
-          window.openDetalhesCliente(clienteId);
-        } else {
-          // vencimentos / listas (se tiver funções)
-          if (typeof window.refreshVencimentos === "function") window.refreshVencimentos();
-          if (typeof window.refreshEmprestimosList === "function") window.refreshEmprestimosList();
-          if (typeof window.refreshClientesList === "function") window.refreshClientesList();
-
-          // fallback
-          if (!window.refreshVencimentos && !window.refreshEmprestimosList && !window.refreshClientesList) {
-            window.location.reload();
-          }
-        }
-
         onSuccess("Pagamento lançado!");
+
+        setTimeout(() => {
+          window.location.reload();
+        }, 150);
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
       }
     });
+
+    modal._setPay = setPay;
+    modal._setHint = setHint;
   }
 
   function openLancarPagamento(openEl) {
     const modal = document.getElementById("modalLancarPagamento");
     if (!modal) return;
 
+    // pode fechar outros (opcional). Vou manter como estava: fecha pra evitar overlay maluco.
     closeAnyOpenModal();
 
-    const setPay = (field, value) => {
-      const el = modal.querySelector(`[data-pay="${field}"]`);
-      if (!el) return;
-      el.value = value ?? "";
-    };
-
-    const setHint = (text) => {
-      const el = modal.querySelector(`[data-pay="hint"]`);
-      if (el) el.textContent = text || "";
-    };
+    const setPay = modal._setPay || function () { };
+    const setHint = modal._setHint || function () { };
 
     const valorInput = modal.querySelector(`[data-pay="valor_pago"]`);
     const tipoSelect = modal.querySelector(`[data-pay="tipo_pagamento"]`);
 
-    // dados do botão
     const emprestimoId = openEl.dataset.emprestimoId || "";
     const parcelaId = openEl.dataset.parcelaId || "";
 
-    // ✅ salva contexto p/ refresh pós-pagamento
-    // (detalhesEmprestimo deve mandar data-origem e data-cliente-id / vencimentos não precisa)
+    // contexto (ainda salva, mas agora não usamos pra reabrir nada)
     const origem = openEl.dataset.origem || "";
-    modal.dataset.origem = origem === "cliente" ? "detalhesCliente" : (origem ? "detalhesEmprestimo" : "");
+    modal.dataset.origem = origem || "";
     modal.dataset.emprestimoId = emprestimoId || "";
     modal.dataset.clienteId = openEl.dataset.clienteId || "";
 
-    // ✅ parcela default: se veio do vencimentos, guarda. se não veio, fica vazio.
     modal.dataset.defaultParcelaId = parcelaId || "";
 
     setPay("cliente_nome", openEl.dataset.clienteNome || "—");
-    setPay("emprestimo_info", openEl.dataset.emprestimoInfo || "—");
     setPay("emprestimo_id", emprestimoId);
-    setPay("parcela_id", parcelaId); // pode ser vazio
+    setPay("parcela_id", parcelaId);
 
     if (openEl.dataset.tipoPadrao) setPay("tipo_pagamento", openEl.dataset.tipoPadrao);
 
     const today = new Date().toISOString().slice(0, 10);
     setPay("data_pagamento", openEl.dataset.dataPadrao || today);
 
+    setPay("emprestimo_info", "Carregando...");
+
     async function hydrateValores() {
-      // fallback sem emprestimoId
       if (!emprestimoId) {
+        setPay("emprestimo_info", openEl.dataset.emprestimoInfo || "—");
         if (openEl.dataset.valorPadrao) setPay("valor_pago", openEl.dataset.valorPadrao);
         setHint("");
         GestorModal.open("modalLancarPagamento");
@@ -261,7 +279,15 @@
 
       try {
         const res = await fetch(`/KRAx/public/api.php?route=emprestimos/detalhes&id=${encodeURIComponent(emprestimoId)}`);
-        const json = await res.json();
+        const parsed = await safeReadJson(res);
+
+        if (!parsed.ok) {
+          onError(`Resposta inválida do servidor ao buscar empréstimo. Veja o console. ${parsed.snippet ? "Trecho: " + parsed.snippet : ""}`);
+          GestorModal.open("modalLancarPagamento");
+          return;
+        }
+
+        const json = parsed.json;
 
         if (!json.ok) {
           onError(json.mensagem || "Erro ao buscar empréstimo");
@@ -276,10 +302,27 @@
 
         if (cli.nome) setPay("cliente_nome", cli.nome);
 
-        const info = `${money(emp.valor_principal)} • ${emp.quantidade_parcelas || "—"} prestações`;
-        setPay("emprestimo_info", openEl.dataset.emprestimoInfo || info);
+        const parcelasArr = Array.isArray(dados.parcelas) ? dados.parcelas : [];
+        const qtdTotal = Math.max(1, Number(emp.quantidade_parcelas || parcelasArr.length || 1) || 1);
+
+        const pagas = parcelasArr.filter((p) => {
+          const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+          const valorPago = Number(p.valor_pago ?? 0);
+          return st === "PAGA" || st === "QUITADA" || valorPago > 0;
+        }).length;
 
         const c = calcValoresEmprestimo(emp, pagamentos);
+
+        const semJuros = money(emp.valor_principal);
+        const comJuros = money(c.totalComJuros);
+
+        const infoCompleto = `
+          <div><strong>Principal:</strong> ${semJuros}</div>
+          <div><strong>Total c/ juros:</strong> ${comJuros}</div>
+          <div><strong>Parcelas:</strong> ${pagas}/${qtdTotal}</div>
+        `;
+
+        setPay("emprestimo_info", infoCompleto);
 
         modal.dataset.prestacao = String(c.prestacao);
         modal.dataset.jurosPrestacao = String(c.jurosPrestacao);
@@ -296,11 +339,9 @@
             valorInput.readOnly = false;
           }
 
-          // ✅ parcela_id: só faz sentido em PARCELA (quando veio da tela de vencimentos)
           const parcelaHidden = modal.querySelector(`[data-pay="parcela_id"]`);
           if (parcelaHidden) {
             if (t === "PARCELA") {
-              // mantém se tiver; se não tiver, deixa vazio (backend distribui automaticamente)
               if (!parcelaHidden.value && modal.dataset.defaultParcelaId) {
                 parcelaHidden.value = modal.dataset.defaultParcelaId;
               }
