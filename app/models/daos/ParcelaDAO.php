@@ -223,6 +223,46 @@ class ParcelaDAO
         return $stmt->fetchAll();
     }
 
+    /**
+     * ✅ Próxima parcela em aberto (a “próxima a vencer/receber”)
+     * Regra: pega a menor numero_parcela ainda em aberto.
+     */
+    public function buscarProximaParcelaAbertaPorEmprestimo(int $emprestimoId): ?array
+    {
+        $sql = "SELECT *
+            FROM parcelas
+            WHERE emprestimo_id = :eid
+              AND status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
+            ORDER BY numero_parcela ASC
+            LIMIT 1";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':eid' => $emprestimoId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    /**
+     * ✅ Atualiza vencimento de uma parcela.
+     * Se estava ATRASADO/ATRASADA e foi adiada, volta pra ABERTA.
+     */
+    public function atualizarDataVencimento(int $parcelaId, string $novaDataYmd): void
+    {
+        $sql = "UPDATE parcelas
+            SET data_vencimento = :dv,
+                status = CASE
+                    WHEN status IN ('ATRASADO','ATRASADA') THEN 'ABERTA'
+                    ELSE status
+                END
+            WHERE id = :id";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':dv' => $novaDataYmd,
+            ':id' => $parcelaId
+        ]);
+    }
+
     public function listarPorEmprestimo(int $emprestimoId): array
     {
         $sql = "SELECT id, numero_parcela, data_vencimento, valor_parcela, valor_pago, status, pago_em

@@ -166,6 +166,44 @@
       if (el) el.textContent = text || "";
     };
 
+    function afterSuccessReturnFlow() {
+      // prioridade 1: returnTo explícito (detalhesEmprestimo / detalhesCliente)
+      const returnTo = String(modal.dataset.returnTo || "").trim();
+      const returnEmprestimoId = String(modal.dataset.returnEmprestimoId || modal.dataset.emprestimoId || "").trim();
+      const returnClienteId = String(modal.dataset.returnClienteId || modal.dataset.clienteId || "").trim();
+
+      const origem = String(modal.dataset.origem || "").trim(); // "emprestimos" ou "cliente" etc
+
+      if (returnTo === "detalhesEmprestimo" && returnEmprestimoId && typeof window.openDetalhesEmprestimo === "function") {
+        // reabre detalhes do empréstimo já atualizados (inclusive vencimento adiado)
+        window.openDetalhesEmprestimo(returnEmprestimoId, {
+          origem: origem || "emprestimos",
+          clienteId: returnClienteId || ""
+        });
+        return;
+      }
+
+      if ((returnTo === "detalhesCliente" || origem === "cliente") && returnClienteId && typeof window.openDetalhesCliente === "function") {
+        window.openDetalhesCliente(returnClienteId);
+        return;
+      }
+
+      // prioridade 2: refresh de listas (se existir)
+      let refreshed = false;
+      if (typeof window.refreshEmprestimosList === "function") {
+        window.refreshEmprestimosList();
+        refreshed = true;
+      }
+      if (typeof window.refreshClientesList === "function") {
+        window.refreshClientesList();
+        refreshed = true;
+      }
+      if (refreshed) return;
+
+      // fallback final
+      window.location.reload();
+    }
+
     const form = qs("#formLancarPagamento");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -216,13 +254,15 @@
           return;
         }
 
-        // ✅ sucesso: fecha e RECARREGA A PÁGINA (regra nova)
+        // ✅ sucesso: fecha modal e retorna pro destino correto (SEM reload)
         GestorModal.close("modalLancarPagamento");
         onSuccess("Pagamento lançado!");
 
+        // pequena folga pro close/anim, e reabre o destino
         setTimeout(() => {
-          window.location.reload();
-        }, 150);
+          afterSuccessReturnFlow();
+        }, 120);
+
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
@@ -237,7 +277,7 @@
     const modal = document.getElementById("modalLancarPagamento");
     if (!modal) return;
 
-    // pode fechar outros (opcional). Vou manter como estava: fecha pra evitar overlay maluco.
+    // fecha outros pra evitar overlay
     closeAnyOpenModal();
 
     const setPay = modal._setPay || function () { };
@@ -249,11 +289,16 @@
     const emprestimoId = openEl.dataset.emprestimoId || "";
     const parcelaId = openEl.dataset.parcelaId || "";
 
-    // contexto (ainda salva, mas agora não usamos pra reabrir nada)
+    // contexto
     const origem = openEl.dataset.origem || "";
     modal.dataset.origem = origem || "";
     modal.dataset.emprestimoId = emprestimoId || "";
     modal.dataset.clienteId = openEl.dataset.clienteId || "";
+
+    // ✅ retorno (vem do botão que abriu)
+    modal.dataset.returnTo = openEl.dataset.returnTo || "";
+    modal.dataset.returnEmprestimoId = openEl.dataset.returnEmprestimoId || emprestimoId || "";
+    modal.dataset.returnClienteId = openEl.dataset.returnClienteId || modal.dataset.clienteId || "";
 
     modal.dataset.defaultParcelaId = parcelaId || "";
 

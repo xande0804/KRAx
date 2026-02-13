@@ -43,6 +43,26 @@
     return { text: "Ativo", cls: "badge--info" };
   }
 
+  // ✅ define quais tipos amortizam (reduzem a dívida principal/total)
+  function tipoAmortiza(tipoRaw) {
+    const t = String(tipoRaw || "").trim().toUpperCase();
+    // JUROS não amortiza (regra do seu sistema)
+    if (t === "JUROS") return false;
+
+    // PARCELA amortiza
+    if (t === "PARCELA") return true;
+
+    // INTEGRAL / QUITACAO amortizam
+    if (t === "INTEGRAL" || t === "QUITACAO") return true;
+
+    // EXTRA: no seu controller ele vira crédito e pode ser usado depois, mas financeiramente
+    // é valor entregue ao sistema; pra "Falta" não ficar bugado, a gente considera amortização.
+    if (t === "EXTRA") return true;
+
+    // fallback: se vier desconhecido, NÃO amortiza (mais seguro pra não reduzir Falta indevidamente)
+    return false;
+  }
+
   // ========= INJECT =========
   window.injectModalDetalhesEmprestimo = function injectModalDetalhesEmprestimo() {
     if (qs("#modalDetalhesEmprestimo")) return;
@@ -211,18 +231,27 @@
         valorPrestacao = totalComJuros / totalParcelas;
       }
 
-      const totalPago = pagamentos.reduce((acc, pg) => {
+      // ✅ 1) Pago total (inclui JUROS) -> pode mudar
+      const totalPagoTudo = pagamentos.reduce((acc, pg) => {
         return acc + toNumber(pg.valor_pago ?? pg.valor ?? 0);
       }, 0);
 
-      const saldo = Math.max(0, totalComJuros - totalPago);
+      // ✅ 2) Pago que amortiza (exclui JUROS) -> é isso que reduz o "Falta"
+      const totalPagoAmortiza = pagamentos.reduce((acc, pg) => {
+        const tipoPg = pg.tipo_pagamento || pg.tipo;
+        if (!tipoAmortiza(tipoPg)) return acc;
+        return acc + toNumber(pg.valor_pago ?? pg.valor ?? 0);
+      }, 0);
+
+      // ✅ "Falta" agora não muda quando a pessoa paga só JUROS
+      const saldo = Math.max(0, totalComJuros - totalPagoAmortiza);
 
       set("valor", money(principal));
       set("prestacao_hint", `Prestação: ${money(valorPrestacao)}`);
 
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
       set("total_juros", money(totalComJuros));
-      set("saldo_hint", `Pago: ${money(totalPago)} • Falta: ${money(saldo)}`);
+      set("saldo_hint", `Pago: ${money(totalPagoTudo)} • Falta: ${money(saldo)}`);
 
       const pagas = parcelas.filter((p) => {
         const st = String(p.status || p.parcela_status || "").trim().toUpperCase();

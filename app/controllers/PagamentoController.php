@@ -91,6 +91,7 @@ class PagamentoController
             // ---------- JUROS / EXTRA ----------
             if ($tipo === 'JUROS' || $tipo === 'EXTRA') {
 
+                // cria pagamento
                 $pagId = $this->criarPagamento(
                     $pagDAO,
                     $emprestimoId,
@@ -101,11 +102,77 @@ class PagamentoController
                     $obs
                 );
 
+                // ✅ REGRA: se pagou JUROS, adia o "cronograma" (todas as parcelas em aberto)
+                // - DIARIO: +1 dia
+                // - SEMANAL: +7 dias
+                // - MENSAL: +1 mês
+                $adiou = false;
+                $parcelasAdiadaIds = [];
+                $novasDatas = [];
+
+                if ($tipo === 'JUROS') {
+                    $emp = $empDAO->buscarPorId($emprestimoId);
+                    if (!$emp) {
+                        throw new RuntimeException('Empréstimo não encontrado.');
+                    }
+
+                    $tipoV = strtoupper(trim((string)$emp->getTipoVencimento()));
+
+                    // pega a "próxima" aberta
+                    $prox = $parDAO->buscarProximaParcelaAbertaPorEmprestimo($emprestimoId);
+
+                    if ($prox && !empty($prox['numero_parcela'])) {
+                        $numProx = (int)$prox['numero_parcela'];
+
+                        // pega TODAS as parcelas abertas ordenadas por numero_parcela
+                        $abertas = $parDAO->listarParcelasAbertasPorEmprestimo($emprestimoId);
+
+                        foreach ($abertas as $parc) {
+                            $idParc = (int)($parc['id'] ?? 0);
+                            $numParc = (int)($parc['numero_parcela'] ?? 0);
+                            $dvRaw = (string)($parc['data_vencimento'] ?? '');
+
+                            // só adia a partir da próxima (inclusive)
+                            if ($idParc <= 0 || $numParc < $numProx) continue;
+                            if (!$dvRaw) continue;
+
+                            $dt = new DateTime(substr($dvRaw, 0, 10));
+
+                            if ($tipoV === 'DIARIO') {
+                                $dt->modify('+1 day');
+                            } elseif ($tipoV === 'SEMANAL') {
+                                $dt->modify('+7 day');
+                            } elseif ($tipoV === 'MENSAL') {
+                                $dt->modify('+1 month');
+                            } else {
+                                // tipo desconhecido: não faz nada
+                                continue;
+                            }
+
+                            $nova = $dt->format('Y-m-d');
+                            $parDAO->atualizarDataVencimento($idParc, $nova);
+
+                            $adiou = true;
+                            $parcelasAdiadaIds[] = $idParc;
+                            $novasDatas[] = [
+                                'parcela_id' => $idParc,
+                                'numero_parcela' => $numParc,
+                                'nova_data_vencimento' => $nova
+                            ];
+                        }
+                    }
+                }
+
                 $this->responderJson(true, 'Pagamento lançado', [
                     'pagamento_id'   => $pagId,
                     'valor_pago'     => $valor,
                     'tipo_pagamento' => $tipo,
                     'data_pagamento' => $dataPagamento,
+
+                    // debug útil
+                    'adiou_cronograma' => $adiou,
+                    'parcelas_adiadas_ids' => $parcelasAdiadaIds,
+                    'parcelas_adiadas' => $novasDatas
                 ]);
                 return;
             }
