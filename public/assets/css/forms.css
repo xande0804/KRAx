@@ -54,6 +54,7 @@
   color: var(--text);
 }
 
+/* inputs normais */
 .field input{
   height: 44px;
   background:#fff;
@@ -61,6 +62,23 @@
 
 .field input::placeholder{
   color: #94a3b8;
+}
+
+/* ✅ FIX: checkbox NÃO pode herdar width/height/padding de input normal */
+.field input[type="checkbox"]{
+  width: auto;
+  height: auto;
+  padding: 0;
+  border-radius: 6px;       /* fica mais bonitinho */
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: none;
+}
+
+/* foco do checkbox no mesmo padrão azul */
+.field input[type="checkbox"]:focus{
+  border-color:#bfdbfe;
+  box-shadow: 0 0 0 3px rgba(59,130,246,.15);
 }
 
 /* grid para o modal */

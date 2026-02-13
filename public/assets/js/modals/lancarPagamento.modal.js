@@ -19,6 +19,28 @@
     return Number.isFinite(n) ? n : 0;
   }
 
+  // ✅ pt-BR: "1.234,56" -> 1234.56
+  function parseMoneyBR(str) {
+    const s0 = String(str ?? "").trim();
+    if (!s0) return 0;
+    // remove "R$", espaços, etc
+    let s = s0.replace(/R\$\s?/g, "").replace(/\s+/g, "");
+    // tira qualquer coisa que não seja número, vírgula, ponto, sinal
+    s = s.replace(/[^0-9,.\-]/g, "");
+    // se tem vírgula, assume decimal e remove pontos de milhar
+    if (s.includes(",")) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    }
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function formatMoneyInputBR(n) {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return "";
+    return num.toFixed(2).replace(".", ",");
+  }
+
   function calcValoresEmprestimo(emp, pagamentos) {
     const principal = toNumber(emp.valor_principal);
     const jurosPct = toNumber(emp.porcentagem_juros);
@@ -167,15 +189,13 @@
     };
 
     function afterSuccessReturnFlow() {
-      // prioridade 1: returnTo explícito (detalhesEmprestimo / detalhesCliente)
       const returnTo = String(modal.dataset.returnTo || "").trim();
       const returnEmprestimoId = String(modal.dataset.returnEmprestimoId || modal.dataset.emprestimoId || "").trim();
       const returnClienteId = String(modal.dataset.returnClienteId || modal.dataset.clienteId || "").trim();
 
-      const origem = String(modal.dataset.origem || "").trim(); // "emprestimos" ou "cliente" etc
+      const origem = String(modal.dataset.origem || "").trim();
 
       if (returnTo === "detalhesEmprestimo" && returnEmprestimoId && typeof window.openDetalhesEmprestimo === "function") {
-        // reabre detalhes do empréstimo já atualizados (inclusive vencimento adiado)
         window.openDetalhesEmprestimo(returnEmprestimoId, {
           origem: origem || "emprestimos",
           clienteId: returnClienteId || ""
@@ -188,7 +208,6 @@
         return;
       }
 
-      // prioridade 2: refresh de listas (se existir)
       let refreshed = false;
       if (typeof window.refreshEmprestimosList === "function") {
         window.refreshEmprestimosList();
@@ -200,7 +219,6 @@
       }
       if (refreshed) return;
 
-      // fallback final
       window.location.reload();
     }
 
@@ -218,9 +236,6 @@
           return;
         }
 
-        // regra parcela_id:
-        // - PARCELA: mantém se tiver (ex: vencimentos), se não tiver deixa vazio (backend distribui).
-        // - JUROS / QUITACAO / EXTRA: sempre limpa parcela_id.
         const parcelaHidden = modal.querySelector(`[data-pay="parcela_id"]`);
         if (parcelaHidden) {
           if (tipo === "PARCELA") {
@@ -254,11 +269,9 @@
           return;
         }
 
-        // ✅ sucesso: fecha modal e retorna pro destino correto (SEM reload)
         GestorModal.close("modalLancarPagamento");
         onSuccess("Pagamento lançado!");
 
-        // pequena folga pro close/anim, e reabre o destino
         setTimeout(() => {
           afterSuccessReturnFlow();
         }, 120);
@@ -277,7 +290,6 @@
     const modal = document.getElementById("modalLancarPagamento");
     if (!modal) return;
 
-    // fecha outros pra evitar overlay
     closeAnyOpenModal();
 
     const setPay = modal._setPay || function () { };
@@ -289,13 +301,11 @@
     const emprestimoId = openEl.dataset.emprestimoId || "";
     const parcelaId = openEl.dataset.parcelaId || "";
 
-    // contexto
     const origem = openEl.dataset.origem || "";
     modal.dataset.origem = origem || "";
     modal.dataset.emprestimoId = emprestimoId || "";
     modal.dataset.clienteId = openEl.dataset.clienteId || "";
 
-    // ✅ retorno (vem do botão que abriu)
     modal.dataset.returnTo = openEl.dataset.returnTo || "";
     modal.dataset.returnEmprestimoId = openEl.dataset.returnEmprestimoId || emprestimoId || "";
     modal.dataset.returnClienteId = openEl.dataset.returnClienteId || modal.dataset.clienteId || "";
@@ -344,10 +354,10 @@
         const emp = dados.emprestimo || {};
         const cli = dados.cliente || {};
         const pagamentos = Array.isArray(dados.pagamentos) ? dados.pagamentos : [];
+        const parcelasArr = Array.isArray(dados.parcelas) ? dados.parcelas : [];
 
         if (cli.nome) setPay("cliente_nome", cli.nome);
 
-        const parcelasArr = Array.isArray(dados.parcelas) ? dados.parcelas : [];
         const qtdTotal = Math.max(1, Number(emp.quantidade_parcelas || parcelasArr.length || 1) || 1);
 
         const pagas = parcelasArr.filter((p) => {
@@ -369,9 +379,42 @@
 
         setPay("emprestimo_info", infoCompleto);
 
+        // ✅ guarda os valores "teóricos" (ainda usados pra JUROS/QUITACAO/EXTRA)
         modal.dataset.prestacao = String(c.prestacao);
         modal.dataset.jurosPrestacao = String(c.jurosPrestacao);
         modal.dataset.saldoQuitacao = String(c.saldoQuitacao);
+
+        function getParcelaById(id) {
+          const pid = Number(id || 0);
+          if (!pid) return null;
+          return parcelasArr.find((p) => Number(p.id) === pid || Number(p.parcela_id) === pid) || null;
+        }
+
+        function isParcelaAberta(p) {
+          const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+          const vp = toNumber(p.valor_pago ?? 0);
+          const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+          // aberta/atrasada/parcial ou ainda não completou o valor
+          if (st === "ABERTA" || st === "PARCIAL" || st === "ATRASADA" || st === "ATRASADO") return true;
+          if (vpar > 0 && vp < vpar) return true;
+          return false;
+        }
+
+        function nextParcelaAberta() {
+          const abertas = parcelasArr.filter(isParcelaAberta);
+          if (!abertas.length) return null;
+          // já vem ORDER BY numero_parcela ASC do DAO, mas garantimos:
+          abertas.sort((a, b) => Number(a.numero_parcela ?? a.numeroParcela ?? 0) - Number(b.numero_parcela ?? b.numeroParcela ?? 0));
+          return abertas[0];
+        }
+
+        function parcelaRestante(p) {
+          if (!p) return 0;
+          const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+          const vp = toNumber(p.valor_pago ?? 0);
+          const falt = vpar - vp;
+          return falt > 0 ? falt : 0;
+        }
 
         function applyTipo(tipo) {
           const t = String(tipo || "").toUpperCase();
@@ -390,19 +433,37 @@
               if (!parcelaHidden.value && modal.dataset.defaultParcelaId) {
                 parcelaHidden.value = modal.dataset.defaultParcelaId;
               }
+              // se ainda tá vazio, tenta apontar pra próxima parcela aberta (pra sugestão ficar certinha)
+              if (!parcelaHidden.value) {
+                const nx = nextParcelaAberta();
+                const nxId = nx ? String(nx.id ?? nx.parcela_id ?? "") : "";
+                if (nxId) parcelaHidden.value = nxId;
+              }
             } else {
               parcelaHidden.value = "";
             }
           }
 
           if (t === "PARCELA") {
-            setPay("valor_pago", prest.toFixed(2).replace(".", ","));
-            setHint(`Prestação sugerida: ${money(prest)}`);
+            // ✅ AQUI É A CORREÇÃO:
+            // Sugestão deve vir do banco (valor_parcela / valor_pago) e não do cálculo teórico.
+            let alvo = null;
+
+            const pid = parcelaHidden ? parcelaHidden.value : "";
+            if (pid) alvo = getParcelaById(pid);
+
+            if (!alvo) alvo = nextParcelaAberta();
+
+            const sugestao = alvo ? parcelaRestante(alvo) : prest;
+
+            setPay("valor_pago", formatMoneyInputBR(sugestao));
+            setHint(`Prestação sugerida: ${money(sugestao)}${alvo ? ` (parcela ${alvo.numero_parcela ?? alvo.numeroParcela ?? "?"})` : ""}`);
           } else if (t === "JUROS") {
-            setPay("valor_pago", juros.toFixed(2).replace(".", ","));
+            setPay("valor_pago", formatMoneyInputBR(juros));
             setHint(`Juros desta prestação: ${money(juros)}`);
           } else if (t === "QUITACAO" || t === "INTEGRAL") {
-            setPay("valor_pago", saldo.toFixed(2).replace(".", ","));
+            // segue estimativa do front (o backend já recalcula QUITACAO mesmo)
+            setPay("valor_pago", formatMoneyInputBR(saldo));
             setHint(`Quitação (saldo estimado): ${money(saldo)}`);
             if (valorInput) valorInput.readOnly = true;
           } else if (t === "EXTRA") {

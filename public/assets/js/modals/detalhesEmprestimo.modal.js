@@ -18,6 +18,17 @@
     return Number.isFinite(n) ? n : 0;
   }
 
+  // ✅ trabalhar em centavos (inteiros) pra não sobrar 0,01 por float
+  function toCents(v) {
+    const n = toNumber(v);
+    return Math.round(n * 100);
+  }
+
+  function moneyFromCents(cents) {
+    const n = (Number(cents) || 0) / 100;
+    return money(n);
+  }
+
   function esc(s) {
     return String(s ?? "")
       .replaceAll("&", "&amp;")
@@ -46,26 +57,21 @@
   // ✅ define quais tipos amortizam (reduzem a dívida principal/total)
   function tipoAmortiza(tipoRaw) {
     const t = String(tipoRaw || "").trim().toUpperCase();
-    // JUROS não amortiza (regra do seu sistema)
     if (t === "JUROS") return false;
-
-    // PARCELA amortiza
     if (t === "PARCELA") return true;
-
-    // INTEGRAL / QUITACAO amortizam
     if (t === "INTEGRAL" || t === "QUITACAO") return true;
-
-    // EXTRA: no seu controller ele vira crédito e pode ser usado depois, mas financeiramente
-    // é valor entregue ao sistema; pra "Falta" não ficar bugado, a gente considera amortização.
     if (t === "EXTRA") return true;
-
-    // fallback: se vier desconhecido, NÃO amortiza (mais seguro pra não reduzir Falta indevidamente)
     return false;
   }
 
-  // ========= INJECT =========
+  // ========= INJECT DETALHES =========
   window.injectModalDetalhesEmprestimo = function injectModalDetalhesEmprestimo() {
     if (qs("#modalDetalhesEmprestimo")) return;
+
+    // ✅ garante que o modal de edição exista (se o arquivo separado já estiver carregado)
+    if (typeof window.injectModalEditarEmprestimo === "function") {
+      window.injectModalEditarEmprestimo();
+    }
 
     const modal = document.createElement("section");
     modal.className = "modal";
@@ -127,6 +133,11 @@
             <button class="btn btn--primary" type="button" data-modal-open="lancarPagamento" id="btnPayFromLoan">
               💳 Lançar pagamento
             </button>
+
+            <button class="btn btn--secondary" type="button" id="btnEditLoan">
+              ✏️ Editar empréstimo
+            </button>
+
             <button class="btn btn--secondary" type="button" id="btnMarkQuitado">
               Marcar como quitado
             </button>
@@ -161,10 +172,8 @@
     const id = String(emprestimoId || "");
     if (!id) return;
 
-    // ✅ guarda qual empréstimo está aberto (pra retorno do pagamento)
     modal.dataset.emprestimoId = id;
 
-    // guarda contexto (de onde veio)
     const origem = (ctx && ctx.origem) ? String(ctx.origem) : "emprestimos";
     const clienteIdCtx = (ctx && ctx.clienteId) ? String(ctx.clienteId) : "";
     modal.dataset.origem = origem;
@@ -212,6 +221,8 @@
       set("cliente_tel", cli.telefone || "—");
 
       const principal = toNumber(emp.valor_principal ?? 0);
+      const principalC = toCents(principal);
+
       const jurosPct = toNumber(emp.porcentagem_juros ?? 0);
       const totalParcelas = Number(emp.quantidade_parcelas ?? parcelas.length ?? 0) || 1;
 
@@ -219,39 +230,60 @@
       const tipoTxt = tipoV === "DIARIO" ? "Diário" : tipoV === "SEMANAL" ? "Semanal" : "Mensal";
       set("tipo_venc", tipoTxt);
 
-      let valorPrestacao = 0;
-      let totalComJuros = 0;
+      // ✅ calcular total/parcelas em centavos (inteiro)
+      let valorPrestacaoC = 0;
+      let totalComJurosC = 0;
 
       if (tipoV === "MENSAL") {
         const jurosInteiro = principal * (jurosPct / 100);
-        valorPrestacao = (principal / totalParcelas) + jurosInteiro;
-        totalComJuros = valorPrestacao * totalParcelas;
+        const totalComJuros = principal + (jurosInteiro * totalParcelas);
+        totalComJurosC = toCents(totalComJuros);
+
+        const prestacao = (principal / totalParcelas) + jurosInteiro;
+        valorPrestacaoC = toCents(prestacao);
       } else {
-        totalComJuros = principal * (1 + jurosPct / 100);
-        valorPrestacao = totalComJuros / totalParcelas;
+        const totalComJuros = principal * (1 + jurosPct / 100);
+        totalComJurosC = toCents(totalComJuros);
+        valorPrestacaoC = Math.round(totalComJurosC / totalParcelas);
       }
 
-      // ✅ 1) Pago total (inclui JUROS) -> pode mudar
-      const totalPagoTudo = pagamentos.reduce((acc, pg) => {
-        return acc + toNumber(pg.valor_pago ?? pg.valor ?? 0);
+      // ✅ somas em centavos
+      const totalPagoTudoC = pagamentos.reduce((acc, pg) => {
+        const v = toNumber(pg.valor_pago ?? pg.valor ?? 0);
+        return acc + toCents(v);
       }, 0);
 
-      // ✅ 2) Pago que amortiza (exclui JUROS) -> é isso que reduz o "Falta"
-      const totalPagoAmortiza = pagamentos.reduce((acc, pg) => {
+      const totalPagoAmortizaC = pagamentos.reduce((acc, pg) => {
         const tipoPg = pg.tipo_pagamento || pg.tipo;
         if (!tipoAmortiza(tipoPg)) return acc;
-        return acc + toNumber(pg.valor_pago ?? pg.valor ?? 0);
+        const v = toNumber(pg.valor_pago ?? pg.valor ?? 0);
+        return acc + toCents(v);
       }, 0);
 
-      // ✅ "Falta" agora não muda quando a pessoa paga só JUROS
-      const saldo = Math.max(0, totalComJuros - totalPagoAmortiza);
+      // saldo em centavos
+      let saldoC = totalComJurosC - totalPagoAmortizaC;
+      if (saldoC < 0) saldoC = 0;
 
-      set("valor", money(principal));
-      set("prestacao_hint", `Prestação: ${money(valorPrestacao)}`);
+      const statusAtual = String(emp.status || "").trim().toUpperCase();
+
+      // ✅ regra: se está QUITADO, não mostra 0,01 — mostra 0,00
+      if (statusAtual === "QUITADO" || saldoC <= 1) {
+        saldoC = 0;
+      }
+
+      set("valor", moneyFromCents(principalC));
+
+      // ✅ hint inteligente: se última prestação for diferente, mostra isso
+      const sugestaoUltimaC = totalComJurosC - (valorPrestacaoC * (totalParcelas - 1));
+      if (totalParcelas > 1 && sugestaoUltimaC > 0 && sugestaoUltimaC !== valorPrestacaoC) {
+        set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)} (última: ${moneyFromCents(sugestaoUltimaC)})`);
+      } else {
+        set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
+      }
 
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
-      set("total_juros", money(totalComJuros));
-      set("saldo_hint", `Pago: ${money(totalPagoTudo)} • Falta: ${money(saldo)}`);
+      set("total_juros", moneyFromCents(totalComJurosC));
+      set("saldo_hint", `Pago: ${moneyFromCents(totalPagoTudoC)} • Falta: ${moneyFromCents(saldoC)}`);
 
       const pagas = parcelas.filter((p) => {
         const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
@@ -271,33 +303,53 @@
 
       set("criado_em", formatDateBR(emp.data_emprestimo || emp.criado_em || emp.created_at));
 
-      const statusAtual = String(emp.status || "").trim().toUpperCase();
-
       const btnPay = modal.querySelector("#btnPayFromLoan");
       const btnQuit = modal.querySelector("#btnMarkQuitado");
+      const btnEdit = modal.querySelector("#btnEditLoan");
 
+      // regra de visibilidade
       if (statusAtual === "QUITADO") {
         if (btnPay) btnPay.style.display = "none";
         if (btnQuit) btnQuit.style.display = "none";
+        if (btnEdit) btnEdit.style.display = "none";
       } else {
         if (btnPay) btnPay.style.display = "";
         if (btnQuit) btnQuit.style.display = "";
+        if (btnEdit) btnEdit.style.display = "";
       }
 
       if (btnPay) {
         btnPay.dataset.emprestimoId = id;
         btnPay.dataset.clienteNome = cli.nome || "";
-        btnPay.dataset.emprestimoInfo = `${money(principal)} - ${pagas}/${totalParcelas} parcelas`;
+        btnPay.dataset.emprestimoInfo = `${moneyFromCents(principalC)} - ${pagas}/${totalParcelas} parcelas`;
         btnPay.dataset.tipoPadrao = "PARCELA";
 
-        // ✅ origem pra abrir pagamento
         btnPay.dataset.origem = modal.dataset.origem || "emprestimos";
         btnPay.dataset.clienteId = modal.dataset.clienteId || String(emp.cliente_id || "");
 
-        // ✅ retorno
         btnPay.dataset.returnTo = "detalhesEmprestimo";
         btnPay.dataset.returnEmprestimoId = id;
         btnPay.dataset.returnClienteId = btnPay.dataset.clienteId || "";
+      }
+
+      // ✅ chama o modal separado (se existir)
+      if (btnEdit) {
+        btnEdit.onclick = () => {
+          if (typeof window.openEditarEmprestimo !== "function") {
+            onError("Modal de edição não carregado. Verifique se editarEmprestimo.modal.js está incluído.");
+            return;
+          }
+
+          window.openEditarEmprestimo({
+            emprestimoId: id,
+            clienteId: String(emp.cliente_id || modal.dataset.clienteId || ""),
+            clienteNome: String(cli.nome || ""),
+            jurosPct: jurosPct,
+            quantidadeParcelas: totalParcelas,
+            tipoVencimento: tipoV,
+            origem: modal.dataset.origem || "emprestimos",
+          });
+        };
       }
 
       if (btnQuit) {
@@ -350,6 +402,7 @@
         };
       }
 
+      // ✅ usar o valor REAL da parcela (p.valor_parcela)
       if (installments) {
         if (!parcelas.length) {
           installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma prestação encontrada.</div>`;
@@ -359,7 +412,8 @@
               const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
               const venc = formatDateBR(p.data_vencimento ?? p.dataVencimento);
 
-              const val = money(valorPrestacao);
+              const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+              const val = valorParcela > 0 ? money(valorParcela) : moneyFromCents(valorPrestacaoC);
 
               const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
               const valorPago = toNumber(p.valor_pago ?? 0);

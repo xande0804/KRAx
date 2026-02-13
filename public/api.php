@@ -7,8 +7,6 @@ require_once __DIR__ . '/../app/controllers/EmprestimoController.php';
 require_once __DIR__ . '/../app/controllers/PagamentoController.php';
 require_once __DIR__ . '/../app/controllers/DashboardController.php';
 
-
-
 switch ($route) {
 
     case 'clientes/criar':
@@ -35,18 +33,21 @@ switch ($route) {
         (new EmprestimoController())->criar();
         break;
 
+    case 'emprestimos/atualizar':
+        (new EmprestimoController())->atualizar();
+        break;
+
     case 'vencimentos/hoje':
         (new EmprestimoController())->vencimentosDoDia();
         break;
 
     case 'vencimentos/amanha':
         (new EmprestimoController())->vencimentosAmanha();
-    break;
+        break;
 
     case 'vencimentos/semana':
         (new EmprestimoController())->vencimentosSemana();
-    break;
-
+        break;
 
     case 'emprestimos/detalhes':
         (new EmprestimoController())->detalhes();
@@ -67,7 +68,7 @@ switch ($route) {
     case 'emprestimos/por_cliente':
         (new EmprestimoController())->porCliente();
         break;
-
+        
     default:
         header('Content-Type: application/json');
         echo json_encode([

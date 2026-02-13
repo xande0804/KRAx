@@ -1,87 +1,274 @@
-/* estilos específicos da tela de vencimentos */
+/* =========================
+   VENCIMENTOS — estilos da tela
+   ========================= */
 
-.section-row{
+.section-row {
   margin-top: 12px;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
-.section-row__left{
-  display:flex;
-  align-items:center;
-  gap:10px;
+.section-row__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.section-row__title{
+.section-row__title {
   font-size: 14px;
   color: var(--danger);
 }
 
-.warn-icon{
+.warn-icon {
   width: 18px;
   height: 18px;
-  display:inline-grid;
-  place-items:center;
+  display: inline-grid;
+  place-items: center;
   color: var(--danger);
 }
 
-/* item de vencimento */
-.venc-item{
+/* =========================
+   SEARCHBAR (igual clientes, mas mais “presente”)
+   ========================= */
+
+.searchbar {
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.searchbar:hover {
+  border-color: rgba(0, 110, 255, 0.25);
+}
+
+.searchbar:focus-within {
+  border-color: rgba(0, 110, 255, 0.55);
+  box-shadow: 0 0 0 4px rgba(0, 110, 255, 0.12);
+}
+
+.searchbar__icon {
+  opacity: 0.7;
+  font-size: 14px;
+}
+
+.input--search {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.input--search::placeholder {
+  color: var(--muted);
+}
+
+/* =========================
+   GRUPOS POR CLIENTE (accordion)
+   ========================= */
+
+.venc-group {
+  margin-top: 10px;
+}
+
+/* Cabeçalho do grupo */
+.venc-group__head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--card);
+
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  text-align: left;
+
+  transition:
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    transform 140ms ease,
+    background 140ms ease;
+}
+
+/* hover com “puxadinha” leve */
+.venc-group__head:hover {
+  border-color: rgba(0, 110, 255, 0.25);
+  transform: translateY(-1px);
+}
+
+/* acessibilidade (tab/teclado) */
+.venc-group__head:focus {
+  outline: none;
+}
+
+.venc-group__head:focus-visible {
+  border-color: rgba(0, 110, 255, 0.55);
+  box-shadow: 0 0 0 4px rgba(0, 110, 255, 0.14);
+}
+
+/* Setinha */
+.venc-group__arrow {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+
+  display: inline-grid;
+  place-items: center;
+
+  font-size: 18px;
+  font-weight: 600;
+
+  color: rgba(0, 110, 255, 0.95);
+  background: rgba(0, 110, 255, 0.10);
+  border: 1px solid rgba(0, 110, 255, 0.25);
+
+  transition:
+    transform 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+
+/* nome + badge + contagem */
+.venc-group__name {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* contador em “pill” */
+.venc-group__count {
+  font-size: 12px;
+  color: rgba(0, 110, 255, 0.95);
+  background: rgba(0, 110, 255, 0.10);
+  border: 1px solid rgba(0, 110, 255, 0.18);
+  padding: 4px 10px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Corpo do accordion */
+.venc-group__body {
+  margin-top: 10px;
+  padding-left: 12px; /* leve indentação */
+}
+
+/* =========================
+   ESTADO ABERTO (realce azul)
+   - funciona com .is-open NO WRAPPER
+   - ou com aria-expanded="true" NO HEAD
+   ========================= */
+
+/* quando o wrapper tiver .is-open */
+.venc-group.is-open .venc-group__head,
+.venc-group__head[aria-expanded="true"] {
+  border-color: rgba(0, 110, 255, 0.55);
+  background: linear-gradient(
+    0deg,
+    rgba(0, 110, 255, 0.06),
+    rgba(0, 110, 255, 0.02)
+  );
+  box-shadow:
+    0 10px 26px rgba(0, 0, 0, 0.06),
+    0 0 0 4px rgba(0, 110, 255, 0.10);
+  transform: translateY(-1px);
+}
+
+/* seta gira e fica azul */
+.venc-group.is-open .venc-group__arrow,
+.venc-group__head[aria-expanded="true"] .venc-group__arrow {
+  transform: rotate(90deg);
+  background: rgba(0, 110, 255, 0.18);
+  box-shadow: 0 0 0 3px rgba(0, 110, 255, 0.12);
+}
+
+
+/* =========================
+   ITEM DE VENCIMENTO
+   ========================= */
+
+.venc-item {
   padding: 14px 14px;
 }
 
-.venc-left{
-  display:flex;
-  flex-direction:column;
+.venc-left {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
-.venc-title{
-  display:flex;
-  align-items:center;
-  gap:10px;
+.venc-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 15px;
 }
 
-.warn-dot{
+.warn-dot {
   width: 18px;
   height: 18px;
   border-radius: 999px;
-  display:inline-grid;
-  place-items:center;
+  display: inline-grid;
+  place-items: center;
   font-weight: 900;
   color: #fff;
   background: var(--danger);
 }
 
-.venc-meta{
-  display:flex;
+.venc-meta {
+  display: flex;
   gap: 12px;
   flex-wrap: wrap;
   font-size: 13px;
   color: var(--muted);
 }
 
-.venc-right{
+.venc-right {
   flex-shrink: 0;
 }
 
 /* botão mais “retinho” igual ao print */
-.btn--compact{
+.btn--compact {
   padding: 10px 14px;
   border-radius: 12px;
 }
 
-/* responsivo */
-@media (max-width: 720px){
-  .venc-item{
+/* =========================
+   RESPONSIVO
+   ========================= */
+
+@media (max-width: 720px) {
+  .venc-item {
     flex-direction: column;
     align-items: flex-start;
   }
-  .venc-right{
+
+  .venc-right {
     width: 100%;
-    display:flex;
-    justify-content:flex-end;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .venc-group__body {
+    padding-left: 0;
   }
 }

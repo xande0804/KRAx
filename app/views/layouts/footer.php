@@ -15,6 +15,10 @@ $pageJs = $pageJs ?? [];
 <script src="/KRAx/public/assets/js/modals/detalhesCliente.modal.js"></script>
 <script src="/KRAx/public/assets/js/modals/editarCliente.modal.js"></script>
 <script src="/KRAx/public/assets/js/modals/lancarPagamento.modal.js"></script>
+
+<!-- ✅ NOVO: modal separado de edição de empréstimo (tem que vir antes do detalhes) -->
+<script src="/KRAx/public/assets/js/modals/editarEmprestimo.modal.js"></script>
+
 <script src="/KRAx/public/assets/js/modals/detalhesEmprestimo.modal.js"></script>
 <script src="/KRAx/public/assets/js/modals/index.js"></script>
 

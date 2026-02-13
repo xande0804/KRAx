@@ -76,6 +76,27 @@ class EmprestimoDAO
         ]);
     }
 
+    /**
+     * ✅ UPDATE regras do empréstimo (usado no "Editar empréstimo")
+     * Atualiza somente:
+     * - quantidade_parcelas
+     * - porcentagem_juros
+     */
+    public function atualizarRegras(int $emprestimoId, int $quantidadeParcelas, float $porcentagemJuros): bool
+    {
+        $sql = "UPDATE emprestimos
+                SET quantidade_parcelas = :qtd,
+                    porcentagem_juros = :juros
+                WHERE id = :id";
+
+        $stmt = $this->pdo->prepare($sql);
+        return $stmt->execute([
+            ':qtd' => $quantidadeParcelas,
+            ':juros' => $porcentagemJuros,
+            ':id' => $emprestimoId
+        ]);
+    }
+
     // ===== helper =====
     private function mapearParaEntity(array $row): Emprestimo
     {

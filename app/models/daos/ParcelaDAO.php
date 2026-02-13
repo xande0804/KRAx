@@ -298,4 +298,64 @@ class ParcelaDAO
         $stmt->execute([':data' => $data]);
         return (int) $stmt->fetchColumn();
     }
+
+    // =========================================================
+    // ✅ NOVOS MÉTODOS (para "Editar Empréstimo" recalcular automático)
+    // =========================================================
+
+    /**
+     * Atualiza o valor_parcela de UMA parcela.
+     * (Não mexe em status/valor_pago.)
+     */
+    public function atualizarValorParcela(int $parcelaId, float $novoValorParcela): void
+    {
+        $sql = "UPDATE parcelas
+                SET valor_parcela = :vp
+                WHERE id = :id";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':vp' => $novoValorParcela,
+            ':id' => $parcelaId
+        ]);
+    }
+
+    /**
+     * Retorna o maior numero_parcela existente para um empréstimo.
+     * Se não tiver nenhuma parcela, retorna 0.
+     */
+    public function buscarMaiorNumeroParcela(int $emprestimoId): int
+    {
+        $sql = "SELECT COALESCE(MAX(numero_parcela), 0)
+                FROM parcelas
+                WHERE emprestimo_id = :eid";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':eid' => $emprestimoId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Remove parcelas excedentes quando reduzir a quantidade.
+     * Segurança:
+     * - só remove parcelas com numero_parcela > :max
+     * - só remove se estiver em status aberto/parcial/atrasado
+     * - e com valor_pago = 0 (pra não apagar coisa já mexida)
+     */
+    public function removerParcelasExcedentes(int $emprestimoId, int $numeroMax): int
+    {
+        $sql = "DELETE FROM parcelas
+                WHERE emprestimo_id = :eid
+                  AND numero_parcela > :max
+                  AND status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
+                  AND (valor_pago IS NULL OR valor_pago = 0)";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':eid' => $emprestimoId,
+            ':max' => $numeroMax
+        ]);
+
+        return (int) $stmt->rowCount();
+    }
 }
