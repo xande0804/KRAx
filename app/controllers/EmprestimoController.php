@@ -43,19 +43,6 @@ class EmprestimoController
                 throw new InvalidArgumentException("Quantidade de parcelas inválida.");
             }
 
-            /**
-             * ✅ REGRA DO "ÚLTIMO CENTAVO":
-             * - Trabalha tudo em centavos (inteiros)
-             * - Define o total a ser pago (totalComJuros)
-             * - Divide por qtd para achar a parcela base (floor)
-             * - A diferença (resto) vai inteira na última parcela
-             *
-             * Mantive sua regra:
-             * - MENSAL: juros inteiros por parcela (principal * juros%) em CADA parcela
-             *          => total = principal + (jurosInteiro * qtd)
-             * - DIARIO/SEMANAL: juros total uma vez (principal * juros%) e divide pelo número de parcelas
-             *          => total = principal * (1 + juros%)
-             */
             $principalC = (int) round($principal * 100);
             $jurosPctF  = $jurosPct / 100;
 
@@ -104,17 +91,6 @@ class EmprestimoController
         }
     }
 
-    /**
-     * ✅ Atualiza regras do empréstimo:
-     * - quantidade_parcelas
-     * - porcentagem_juros
-     *
-     * E recalcula automaticamente as parcelas futuras (sem checkbox).
-     *
-     * Regra de segurança:
-     * - Se já existir parcela paga/parcial/valor_pago > 0, bloqueia a edição
-     *   (pra não bagunçar histórico e saldo).
-     */
     public function atualizar(): void
 {
     try {
@@ -229,15 +205,6 @@ class EmprestimoController
     }
 }
 
-
-    /**
-     * Regras:
-     * - DIARIO: regra_vencimento = data do 1º vencimento (YYYY-MM-DD). Parcela n = regra + (n-1) dias
-     * - MENSAL: regra_vencimento = data do 1º vencimento (YYYY-MM-DD). Parcela n = regra + (n-1) meses
-     * - SEMANAL: regra_vencimento = "1".."6" (Seg..Sáb). 1ª parcela no mínimo +7 dias após base e no dia escolhido.
-     *
-     * Regra global: vencimento nunca pode ser menor que data do empréstimo.
-     */
     private function calcularVencimento(string $base, string $tipo, ?string $regra, int $n): string
     {
         $tipo = strtoupper(trim((string)$tipo));

@@ -4,9 +4,6 @@
   const onError = window.onError || function () { };
   const GestorModal = window.GestorModal;
 
-  // ✅ debug pra você ter certeza que carregou o arquivo certo
-  console.log("✅ DETALHES MODAL CARREGADO - v2026-02-13-B");
-
   function money(v) {
     const num = Number(v);
     if (Number.isFinite(num)) {

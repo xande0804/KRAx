@@ -3,20 +3,18 @@
 require_once __DIR__ . '/../models/dtos/ClienteDTO.php';
 require_once __DIR__ . '/../models/entities/Cliente.php';
 require_once __DIR__ . '/../models/daos/ClienteDAO.php';
+require_once __DIR__ . '/../models/daos/EmprestimoDAO.php';
 
 class ClienteController
 {
     public function criar(): void
     {
         try {
-            // 1) Recebe dados (POST por enquanto)
             $dados = $_POST;
 
-            // 2) DTO + validação
             $dto = new ClienteDTO($dados);
             $dto->validar();
 
-            // 3) Entity
             $cliente = new Cliente();
             $cliente->setNome($dto->nome);
             $cliente->setCpf($dto->cpf);
@@ -26,11 +24,9 @@ class ClienteController
             $cliente->setPlacaCarro($dto->placa_carro);
             $cliente->setIndicacao($dto->indicacao);
 
-            // 4) DAO
             $dao = new ClienteDAO();
             $id = $dao->criar($cliente);
 
-            // 5) Resposta
             $this->responderJson(true, 'Cliente criado com sucesso', [
                 'id' => $id
             ]);
@@ -43,7 +39,7 @@ class ClienteController
     {
         try {
             $dao = new ClienteDAO();
-            $linhas = $dao->listar(); // agora vem array com tem_emprestimo_ativo
+            $linhas = $dao->listar();
 
             $dados = [];
             foreach ($linhas as $row) {
@@ -107,18 +103,15 @@ class ClienteController
                 throw new InvalidArgumentException('ID inválido.');
             }
 
-            // monta DTO com os dados do POST
             $dto = new ClienteDTO($_POST);
             $dto->validar();
 
-            // busca cliente existente (pra garantir que existe)
             $dao = new ClienteDAO();
             $existente = $dao->buscarPorId($id);
             if (!$existente) {
                 throw new RuntimeException('Cliente não encontrado.');
             }
 
-            // seta novos dados na Entity
             $existente->setNome($dto->nome);
             $existente->setCpf($dto->cpf);
             $existente->setTelefone($dto->telefone);
@@ -147,10 +140,21 @@ class ClienteController
             }
 
             $dao = new ClienteDAO();
+            $empDAO = new EmprestimoDAO();
+
             $cliente = $dao->buscarPorId($id);
 
             if (!$cliente) {
                 throw new RuntimeException('Cliente não encontrado.');
+            }
+
+            // 🔥 REGRA DE NEGÓCIO
+            $emprestimos = $empDAO->listarPorCliente($id);
+
+            if ($emprestimos && count($emprestimos) > 0) {
+                throw new RuntimeException(
+                    'Não é possível excluir este cliente, pois ele possui empréstimos registrados no sistema.'
+                );
             }
 
             $dao->excluir($id);

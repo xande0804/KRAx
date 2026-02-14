@@ -196,7 +196,6 @@
 /* seta gira e fica azul */
 .venc-group.is-open .venc-group__arrow,
 .venc-group__head[aria-expanded="true"] .venc-group__arrow {
-  transform: rotate(90deg);
   background: rgba(0, 110, 255, 0.18);
   box-shadow: 0 0 0 3px rgba(0, 110, 255, 0.12);
 }

@@ -167,46 +167,93 @@ class ParcelaDAO
 
     // ===== Vencimentos =====
 
-    public function listarVencimentos(DateTime $data): array
+    public function listarVencimentos(DateTime $ate): array
     {
-        $d = $data->format('Y-m-d');
-
         $sql = "
-          SELECT *
-          FROM parcelas p
-          INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-          INNER JOIN clientes c ON c.id = e.cliente_id
-          WHERE DATE(p.data_vencimento) <= :d
-            AND e.status <> 'QUITADO'
-          ORDER BY p.data_vencimento ASC, p.numero_parcela ASC
-        ";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':d' => $d]);
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    public function listarVencimentosEntre(DateTime $ini, DateTime $fim): array
-    {
-        $di = $ini->format('Y-m-d');
-        $df = $fim->format('Y-m-d');
-
-        $sql = "
-          SELECT *
-          FROM parcelas p
-          INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-          INNER JOIN clientes c ON c.id = e.cliente_id
-          WHERE DATE(p.data_vencimento) BETWEEN :di AND :df
-            AND e.status <> 'QUITADO'
-          ORDER BY p.data_vencimento ASC, p.numero_parcela ASC
-        ";
+        SELECT
+            c.id AS cliente_id,
+            c.nome AS cliente_nome,
+            e.id AS emprestimo_id,
+            p.id AS parcela_id,
+            p.numero_parcela,
+            p.data_vencimento,
+            e.valor_principal,
+            e.porcentagem_juros,
+            e.quantidade_parcelas,
+            e.tipo_vencimento
+        FROM parcelas p
+        INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+        INNER JOIN clientes c ON c.id = e.cliente_id
+        WHERE p.status = 'ABERTA'
+          AND p.data_vencimento <= :data
+        ORDER BY p.data_vencimento ASC
+    ";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
-            ':di' => $di,
-            ':df' => $df
+            ':data' => $ate->format('Y-m-d')
         ]);
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+
+    public function listarVencimentosEntre(DateTime $ini, DateTime $fim): array
+    {
+        $sql = "
+        SELECT
+            c.id AS cliente_id,
+            c.nome AS cliente_nome,
+            e.id AS emprestimo_id,
+            p.id AS parcela_id,
+            p.numero_parcela,
+            p.data_vencimento,
+            e.valor_principal,
+            e.porcentagem_juros,
+            e.quantidade_parcelas,
+            e.tipo_vencimento
+        FROM parcelas p
+        INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+        INNER JOIN clientes c ON c.id = e.cliente_id
+        WHERE p.status = 'ABERTA'
+          AND p.data_vencimento BETWEEN :ini AND :fim
+        ORDER BY p.data_vencimento ASC
+    ";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':ini' => $ini->format('Y-m-d'),
+            ':fim' => $fim->format('Y-m-d')
+        ]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function contarVencemHoje(): int
+    {
+        $sql = "
+        SELECT COUNT(*) 
+        FROM parcelas p
+        INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE p.status = 'ABERTA'
+          AND DATE(p.data_vencimento) = CURDATE()
+          AND e.status <> 'QUITADO'
+    ";
+
+        return (int) $this->pdo->query($sql)->fetchColumn();
+    }
+
+    public function contarAtrasados(): int
+    {
+        $sql = "
+        SELECT COUNT(*) 
+        FROM parcelas p
+        INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+        WHERE p.status = 'ABERTA'
+          AND DATE(p.data_vencimento) < CURDATE()
+          AND e.status <> 'QUITADO'
+    ";
+
+        return (int) $this->pdo->query($sql)->fetchColumn();
     }
 }
