@@ -78,7 +78,7 @@ class EmprestimoDAO
 
     /**
      * ✅ UPDATE regras do empréstimo (usado no "Editar empréstimo")
-     * Atualiza somente:
+     * Atualiza:
      * - quantidade_parcelas
      * - porcentagem_juros
      */
@@ -94,6 +94,26 @@ class EmprestimoDAO
             ':qtd' => $quantidadeParcelas,
             ':juros' => $porcentagemJuros,
             ':id' => $emprestimoId
+        ]);
+    }
+
+    /**
+     * ✅ (Opcional) Atualiza também a regra de vencimento
+     */
+    public function atualizarRegrasComVencimento(int $emprestimoId, int $quantidadeParcelas, float $porcentagemJuros, string $regraVencimento): bool
+    {
+        $sql = "UPDATE emprestimos
+                SET quantidade_parcelas = :qtd,
+                    porcentagem_juros = :juros,
+                    regra_vencimento = :regra
+                WHERE id = :id";
+
+        $stmt = $this->pdo->prepare($sql);
+        return $stmt->execute([
+            ':qtd'   => $quantidadeParcelas,
+            ':juros' => $porcentagemJuros,
+            ':regra' => $regraVencimento,
+            ':id'    => $emprestimoId
         ]);
     }
 
@@ -115,11 +135,6 @@ class EmprestimoDAO
 
     /**
      * Lista para a tela de empréstimos (com filtro)
-     * - proximo_vencimento: menor data_vencimento APENAS das parcelas em aberto
-     * - parcelas_pagas: conta parcelas pagas/quitadas (ou que já atingiram valor_parcela)
-     *
-     * ✅ REGRA NOVA:
-     * - se o empréstimo está QUITADO, força parcelas_pagas = quantidade_parcelas e proximo_vencimento = NULL
      */
     public function listarComFiltro(?string $filtro = null): array
     {
@@ -132,7 +147,6 @@ class EmprestimoDAO
             e.quantidade_parcelas,
             e.status,
 
-            -- ✅ Próximo vencimento (se QUITADO, não tem)
             CASE 
               WHEN UPPER(e.status) = 'QUITADO' THEN NULL
               ELSE MIN(
@@ -145,7 +159,6 @@ class EmprestimoDAO
               )
             END AS proximo_vencimento,
 
-            -- ✅ Parcelas pagas (se QUITADO, força 100%)
             CASE 
               WHEN UPPER(e.status) = 'QUITADO' THEN e.quantidade_parcelas
               ELSE COALESCE(SUM(
@@ -173,12 +186,18 @@ class EmprestimoDAO
             $where[] = "e.status = 'QUITADO'";
         }
 
+        // ✅ CORRIGIDO: atraso por DATA + "não pago" (status ou valor_pago < valor_parcela)
         if ($filtro === 'ATRASADO') {
             $where[] = "e.status = 'ATIVO' AND EXISTS (
                 SELECT 1 FROM parcelas px
                 WHERE px.emprestimo_id = e.id
-                  AND UPPER(px.status) IN ('ABERTA','PARCIAL','ATRASADO','ATRASADA')
                   AND px.data_vencimento < CURDATE()
+                  AND (
+                        -- status indica aberto/atrasado
+                        UPPER(COALESCE(px.status,'')) IN ('ABERTA','PARCIAL','ATRASADO','ATRASADA')
+                        -- OU ainda não quitou pelo valor (cobre status vazio/errado)
+                        OR COALESCE(px.valor_pago,0) < COALESCE(px.valor_parcela,0)
+                  )
             )";
         }
 
@@ -186,7 +205,6 @@ class EmprestimoDAO
             $sql .= " WHERE " . implode(" AND ", $where);
         }
 
-        // ✅ GROUP BY completo (evita erro com ONLY_FULL_GROUP_BY)
         $sql .= "
             GROUP BY 
               e.id, e.cliente_id, c.nome, e.valor_principal, e.quantidade_parcelas, e.status
@@ -204,8 +222,7 @@ class EmprestimoDAO
         return (int) $stmt->fetchColumn();
     }
 
-    // (mantive sua assinatura original, mas padronizei a lógica do proximo_vencimento)
-    public function ListarPorCliente(int $clienteId): array
+    public function listarPorCliente(int $clienteId): array
     {
         $pdo = Database::conectar();
 
@@ -218,7 +235,6 @@ class EmprestimoDAO
             e.quantidade_parcelas,
             e.status,
 
-            -- ✅ Parcelas pagas (se QUITADO, força 100%)
             CASE 
               WHEN UPPER(e.status) = 'QUITADO' THEN e.quantidade_parcelas
               ELSE COALESCE(SUM(
@@ -231,7 +247,6 @@ class EmprestimoDAO
               ), 0)
             END AS parcelas_pagas,
 
-            -- ✅ Próximo vencimento (se QUITADO, não tem)
             CASE 
               WHEN UPPER(e.status) = 'QUITADO' THEN NULL
               ELSE MIN(
