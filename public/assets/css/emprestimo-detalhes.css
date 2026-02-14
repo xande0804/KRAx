@@ -180,3 +180,9 @@
 @media (max-width: 720px){
   .loan-kpis{ grid-template-columns: 1fr; }
 }
+
+.inst-dot--warn{
+  border-color: #facc15;   /* amarelo */
+  background: #fef9c3;     /* amarelo claro */
+}
+

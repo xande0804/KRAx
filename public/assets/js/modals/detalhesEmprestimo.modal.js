@@ -4,6 +4,9 @@
   const onError = window.onError || function () { };
   const GestorModal = window.GestorModal;
 
+  // ✅ debug pra você ter certeza que carregou o arquivo certo
+  console.log("✅ DETALHES MODAL CARREGADO - v2026-02-13-B");
+
   function money(v) {
     const num = Number(v);
     if (Number.isFinite(num)) {
@@ -62,6 +65,37 @@
     if (t === "INTEGRAL" || t === "QUITACAO") return true;
     if (t === "EXTRA") return true;
     return false;
+  }
+
+  // ✅ ajuda: determina situação real da parcela olhando valor_pago x valor_parcela
+  function calcSituacaoParcela(p, isQuitado) {
+    const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
+    const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+    const valorPago = toNumber(p.valor_pago ?? p.valorPago ?? 0);
+
+    // tolerância 1 centavo
+    const vparC = toCents(valorParcela);
+    const vpC = toCents(valorPago);
+
+    const isPagaReal = isQuitado
+      ? true
+      : (stp === "PAGA" || stp === "QUITADA" || (vparC > 0 && vpC >= vparC));
+
+    const isParcial = !isQuitado && !isPagaReal && vpC > 0 && vparC > 0 && vpC < vparC;
+
+    const isAtrasada = !isQuitado && (stp === "ATRASADO" || stp === "ATRASADA");
+
+    const restanteC = Math.max(0, vparC - vpC);
+
+    return {
+      stp,
+      valorParcela,
+      valorPago,
+      isPagaReal,
+      isParcial,
+      isAtrasada,
+      restanteC
+    };
   }
 
   // ========= INJECT DETALHES =========
@@ -265,9 +299,10 @@
       if (saldoC < 0) saldoC = 0;
 
       const statusAtual = String(emp.status || "").trim().toUpperCase();
+      const isQuitado = statusAtual === "QUITADO";
 
       // ✅ regra: se está QUITADO, não mostra 0,01 — mostra 0,00
-      if (statusAtual === "QUITADO" || saldoC <= 1) {
+      if (isQuitado || saldoC <= 1) {
         saldoC = 0;
       }
 
@@ -276,7 +311,7 @@
       // ✅ hint inteligente: se última prestação for diferente, mostra isso
       const sugestaoUltimaC = totalComJurosC - (valorPrestacaoC * (totalParcelas - 1));
       if (totalParcelas > 1 && sugestaoUltimaC > 0 && sugestaoUltimaC !== valorPrestacaoC) {
-        set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)} (última: ${moneyFromCents(sugestaoUltimaC)})`);
+        set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
       } else {
         set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
       }
@@ -285,12 +320,15 @@
       set("total_juros", moneyFromCents(totalComJurosC));
       set("saldo_hint", `Pago: ${moneyFromCents(totalPagoTudoC)} • Falta: ${moneyFromCents(saldoC)}`);
 
-      const pagas = parcelas.filter((p) => {
-        const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
-        const valorPago = toNumber(p.valor_pago ?? p.valorPago ?? 0);
-        return st === "PAGA" || st === "QUITADA" || valorPago > 0;
-      }).length;
-
+      // ✅ CONTAGEM DE PARCELAS:
+      // - QUITADO: 100%
+      // - caso contrário: só conta como paga se REALMENTE quitou a parcela (não só "pagou um pouco")
+      let pagas = 0;
+      if (isQuitado) {
+        pagas = totalParcelas;
+      } else {
+        pagas = parcelas.filter((p) => calcSituacaoParcela(p, false).isPagaReal).length;
+      }
       set("parcelas", `${pagas} / ${totalParcelas || 0}`);
 
       const st = statusBadge(emp.status);
@@ -308,7 +346,7 @@
       const btnEdit = modal.querySelector("#btnEditLoan");
 
       // regra de visibilidade
-      if (statusAtual === "QUITADO") {
+      if (isQuitado) {
         if (btnPay) btnPay.style.display = "none";
         if (btnQuit) btnQuit.style.display = "none";
         if (btnEdit) btnEdit.style.display = "none";
@@ -353,7 +391,7 @@
       }
 
       if (btnQuit) {
-        btnQuit.disabled = statusAtual === "QUITADO";
+        btnQuit.disabled = isQuitado;
 
         btnQuit.onclick = async () => {
           if (btnQuit.disabled) return;
@@ -368,7 +406,7 @@
             fd.append("emprestimo_id", id);
             fd.append("tipo_pagamento", "QUITACAO");
             fd.append("valor_pago", "1");
-            fd.append("observacao", "Quitação de dívida");
+            fd.append("observacao", "Quitação (parcelas restantes + 1 juros)");
 
             const r = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
               method: "POST",
@@ -402,7 +440,9 @@
         };
       }
 
-      // ✅ usar o valor REAL da parcela (p.valor_parcela)
+      // ✅ LISTA DE PRESTAÇÕES:
+      // - NÃO marcar PARCIAL como "paga"
+      // - Se estiver PARCIAL por adiantamento, mostrar o RESTANTE (valor_parcela - valor_pago)
       if (installments) {
         if (!parcelas.length) {
           installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma prestação encontrada.</div>`;
@@ -412,30 +452,55 @@
               const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
               const venc = formatDateBR(p.data_vencimento ?? p.dataVencimento);
 
-              const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
-              const val = valorParcela > 0 ? money(valorParcela) : moneyFromCents(valorPrestacaoC);
+              const s = calcSituacaoParcela(p, isQuitado);
 
-              const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
-              const valorPago = toNumber(p.valor_pago ?? 0);
+              // ✅ valor exibido:
+              // - Parcial => mostra restante
+              // - caso contrário => mostra valor total da parcela (do banco)
+              // - fallback: cálculo teórico
+              let valTxt = "—";
+              if (s.isParcial) {
+                valTxt = moneyFromCents(s.restanteC);
+              } else {
+                const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+                valTxt = valorParcela > 0 ? money(valorParcela) : moneyFromCents(valorPrestacaoC);
+              }
 
-              const isPaga = stp === "PAGA" || stp === "QUITADA" || valorPago > 0;
-              const isAtrasada = stp === "ATRASADO";
+              const dotCls = s.isPagaReal
+                ? "inst-dot--ok"
+                : s.isParcial
+                  ? "inst-dot--warn"
+                  : s.isAtrasada
+                    ? "inst-dot--danger"
+                    : "";
 
-              const dotCls = isPaga ? "inst-dot--ok" : isAtrasada ? "inst-dot--danger" : "";
+              const labelStatus = isQuitado
+                ? "Paga"
+                : s.isPagaReal
+                  ? "Paga"
+                  : s.isParcial
+                    ? "Parcial"
+                    : "";
+
+              const subLinha = (!isQuitado && s.isParcial)
+                ? `<span class="muted" style="margin-left:10px;">Restante após adiantamento</span>`
+                : ``;
 
               return `
-                  <div class="installment-row">
-                    <div class="inst-left">
-                      <span class="inst-dot ${dotCls}"></span>
-                      <span class="inst-title">Prestação ${esc(num)}</span>
-                    </div>
-
-                    <div class="inst-right">
-                      <span>${esc(venc)}</span>
-                      <span class="inst-value">${esc(val)}</span>
-                    </div>
+                <div class="installment-row">
+                  <div class="inst-left">
+                    <span class="inst-dot ${dotCls}"></span>
+                    <span class="inst-title">Prestação ${esc(num)}</span>
+                    ${labelStatus ? `<span class="muted" style="margin-left:10px;">${esc(labelStatus)}</span>` : ``}
+                    ${subLinha}
                   </div>
-                `;
+
+                  <div class="inst-right">
+                    <span>${esc(venc)}</span>
+                    <span class="inst-value">${esc(valTxt)}</span>
+                  </div>
+                </div>
+              `;
             })
             .join("");
         }
@@ -448,22 +513,29 @@
           payHist.innerHTML = pagamentos
             .map((pg) => {
               const tipoRaw = String(pg.tipo_pagamento || pg.tipo || "Pagamento").trim().toUpperCase();
-              const tipo =
+
+              let title =
                 tipoRaw === "PARCELA" ? "Prestação" :
                   tipoRaw === "JUROS" ? "Juros" :
-                    tipoRaw === "QUITACAO" ? "Quitação de dívida" :
-                      tipoRaw === "INTEGRAL" ? "Pagamento integral" :
+                    tipoRaw === "INTEGRAL" ? "Pagamento integral" :
+                      tipoRaw === "EXTRA" ? "Crédito/extra" :
                         tipoRaw;
+
+              let sub = String(pg.observacao || "").trim();
+
+              if (tipoRaw === "QUITACAO") {
+                title = "PAGAMENTO";
+                sub = "Quitação (parcelas restantes + 1 juros)";
+              }
 
               const data = formatDateBR(pg.data_pagamento || pg.data);
               const val = money(pg.valor_pago || pg.valor);
-              const obs = String(pg.observacao || "").trim();
 
               return `
                 <div class="pay-row">
                   <div class="pay-left">
-                    <div class="pay-title">${esc(tipo)}</div>
-                    ${obs ? `<div class="pay-sub">${esc(obs)}</div>` : ``}
+                    <div class="pay-title">${esc(title)}</div>
+                    ${sub ? `<div class="pay-sub">${esc(sub)}</div>` : ``}
                   </div>
                   <div class="pay-right">
                     <span>${esc(data)}</span>

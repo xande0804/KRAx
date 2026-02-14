@@ -12,7 +12,7 @@ class ParcelaDAO
         $this->pdo = Database::conectar();
     }
 
-    public function criar(Parcela $p): void
+    public function criar(Parcela $p): int
     {
         $sql = "INSERT INTO parcelas
                 (emprestimo_id, numero_parcela, data_vencimento, valor_parcela, valor_pago, status)
@@ -28,334 +28,185 @@ class ParcelaDAO
             ':valor_pago'      => $p->getValorPago(),
             ':status'          => $p->getStatus(),
         ]);
-    }
 
-    /**
-     * (LEGADO) Vencimentos até uma data (<=).
-     * Se você usar isso pra "Hoje", vem atrasado junto.
-     */
-    public function listarVencimentos(DateTime $dataBase): array
-    {
-        $sql = "
-            SELECT 
-                p.id AS parcela_id,
-                p.numero_parcela,
-                p.data_vencimento,
-                p.status AS parcela_status,
-                p.valor_parcela,
-                p.valor_pago,
-
-                e.id AS emprestimo_id,
-                e.valor_principal,
-                e.porcentagem_juros,
-                e.quantidade_parcelas,
-                e.tipo_vencimento,
-
-                c.id AS cliente_id,
-                c.nome AS cliente_nome
-            FROM parcelas p
-            INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-            INNER JOIN clientes c ON c.id = e.cliente_id
-            WHERE p.status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-              AND p.data_vencimento <= :data_base
-            ORDER BY p.data_vencimento ASC
-        ";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':data_base' => $dataBase->format('Y-m-d')]);
-        return $stmt->fetchAll();
-    }
-
-    /**
-     * ✅ Vencimentos EXATOS de um dia (data_vencimento = dia)
-     * Usado pra "Hoje" e "Amanhã" corretamente.
-     */
-    public function listarVencimentosNoDia(DateTime $dia): array
-    {
-        $sql = "
-            SELECT 
-                p.id AS parcela_id,
-                p.numero_parcela,
-                p.data_vencimento,
-                p.status AS parcela_status,
-                p.valor_parcela,
-                p.valor_pago,
-
-                e.id AS emprestimo_id,
-                e.valor_principal,
-                e.porcentagem_juros,
-                e.quantidade_parcelas,
-                e.tipo_vencimento,
-
-                c.id AS cliente_id,
-                c.nome AS cliente_nome
-            FROM parcelas p
-            INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-            INNER JOIN clientes c ON c.id = e.cliente_id
-            WHERE p.status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-              AND p.data_vencimento = :dia
-            ORDER BY p.data_vencimento ASC
-        ";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':dia' => $dia->format('Y-m-d')]);
-        return $stmt->fetchAll();
-    }
-
-    /**
-     * ✅ Somente atrasados (data_vencimento < hoje)
-     * Pra renderizar a seção "Atrasados" separada.
-     */
-    public function listarAtrasadosAte(DateTime $hoje): array
-    {
-        $sql = "
-            SELECT 
-                p.id AS parcela_id,
-                p.numero_parcela,
-                p.data_vencimento,
-                p.status AS parcela_status,
-                p.valor_parcela,
-                p.valor_pago,
-
-                e.id AS emprestimo_id,
-                e.valor_principal,
-                e.porcentagem_juros,
-                e.quantidade_parcelas,
-                e.tipo_vencimento,
-
-                c.id AS cliente_id,
-                c.nome AS cliente_nome
-            FROM parcelas p
-            INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-            INNER JOIN clientes c ON c.id = e.cliente_id
-            WHERE p.status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-              AND p.data_vencimento < :hoje
-            ORDER BY p.data_vencimento ASC
-        ";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':hoje' => $hoje->format('Y-m-d')]);
-        return $stmt->fetchAll();
-    }
-
-    /**
-     * ✅ Vencimentos entre duas datas (inclusive) — "Semana"
-     */
-    public function listarVencimentosEntre(DateTime $ini, DateTime $fim): array
-    {
-        $sql = "
-            SELECT 
-                p.id AS parcela_id,
-                p.numero_parcela,
-                p.data_vencimento,
-                p.status AS parcela_status,
-                p.valor_parcela,
-                p.valor_pago,
-
-                e.id AS emprestimo_id,
-                e.valor_principal,
-                e.porcentagem_juros,
-                e.quantidade_parcelas,
-                e.tipo_vencimento,
-
-                c.id AS cliente_id,
-                c.nome AS cliente_nome
-            FROM parcelas p
-            INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-            INNER JOIN clientes c ON c.id = e.cliente_id
-            WHERE p.status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-              AND p.data_vencimento BETWEEN :ini AND :fim
-            ORDER BY p.data_vencimento ASC
-        ";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([
-            ':ini' => $ini->format('Y-m-d'),
-            ':fim' => $fim->format('Y-m-d'),
-        ]);
-        return $stmt->fetchAll();
-    }
-
-    public function buscarPorId(int $id): ?array
-    {
-        $sql = "SELECT * FROM parcelas WHERE id = :id LIMIT 1";
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':id' => $id]);
-        $row = $stmt->fetch();
-        return $row ?: null;
-    }
-
-    public function adicionarPagamentoNaParcela(int $parcelaId, float $valorPago): void
-    {
-        $sql = "UPDATE parcelas
-            SET valor_pago = valor_pago + :v_add,
-                status = CASE
-                    WHEN (valor_pago + :v_ge) >= valor_parcela THEN 'PAGA'
-                    WHEN (valor_pago + :v_gt) > 0 THEN 'PARCIAL'
-                    ELSE status
-                END,
-                pago_em = CASE
-                    WHEN (valor_pago + :v_ge2) >= valor_parcela THEN NOW()
-                    ELSE pago_em
-                END
-            WHERE id = :id";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([
-            ':v_add' => $valorPago,
-            ':v_ge'  => $valorPago,
-            ':v_gt'  => $valorPago,
-            ':v_ge2' => $valorPago,
-            ':id'    => $parcelaId
-        ]);
-    }
-
-    public function listarParcelasAbertasPorEmprestimo(int $emprestimoId): array
-    {
-        $sql = "SELECT *
-            FROM parcelas
-            WHERE emprestimo_id = :eid
-              AND status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-            ORDER BY numero_parcela ASC";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':eid' => $emprestimoId]);
-        return $stmt->fetchAll();
-    }
-
-    /**
-     * ✅ Próxima parcela em aberto (a “próxima a vencer/receber”)
-     * Regra: pega a menor numero_parcela ainda em aberto.
-     */
-    public function buscarProximaParcelaAbertaPorEmprestimo(int $emprestimoId): ?array
-    {
-        $sql = "SELECT *
-            FROM parcelas
-            WHERE emprestimo_id = :eid
-              AND status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-            ORDER BY numero_parcela ASC
-            LIMIT 1";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':eid' => $emprestimoId]);
-        $row = $stmt->fetch();
-        return $row ?: null;
-    }
-
-    /**
-     * ✅ Atualiza vencimento de uma parcela.
-     * Se estava ATRASADO/ATRASADA e foi adiada, volta pra ABERTA.
-     */
-    public function atualizarDataVencimento(int $parcelaId, string $novaDataYmd): void
-    {
-        $sql = "UPDATE parcelas
-            SET data_vencimento = :dv,
-                status = CASE
-                    WHEN status IN ('ATRASADO','ATRASADA') THEN 'ABERTA'
-                    ELSE status
-                END
-            WHERE id = :id";
-
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([
-            ':dv' => $novaDataYmd,
-            ':id' => $parcelaId
-        ]);
+        return (int)$this->pdo->lastInsertId();
     }
 
     public function listarPorEmprestimo(int $emprestimoId): array
     {
-        $sql = "SELECT id, numero_parcela, data_vencimento, valor_parcela, valor_pago, status, pago_em
-            FROM parcelas
-            WHERE emprestimo_id = :eid
-            ORDER BY numero_parcela ASC";
+        $sql = "SELECT
+                  id,
+                  emprestimo_id,
+                  numero_parcela,
+                  data_vencimento,
+                  valor_parcela,
+                  ROUND(COALESCE(valor_pago, 0), 2) AS valor_pago,
+                  status,
+                  pago_em
+                FROM parcelas
+                WHERE emprestimo_id = :eid
+                ORDER BY numero_parcela ASC, id ASC";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([':eid' => $emprestimoId]);
-        return $stmt->fetchAll();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function contarVencemHoje(string $data): int
+    public function listarParcelasAbertasPorEmprestimo(int $emprestimoId): array
     {
-        $sql = "SELECT COUNT(*)
-            FROM parcelas
-            WHERE status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-              AND data_vencimento = :data";
+        $sql = "SELECT
+                  id,
+                  emprestimo_id,
+                  numero_parcela,
+                  data_vencimento,
+                  valor_parcela,
+                  ROUND(COALESCE(valor_pago, 0), 2) AS valor_pago,
+                  status
+                FROM parcelas
+                WHERE emprestimo_id = :eid
+                  AND ROUND(COALESCE(valor_pago,0),2) < ROUND(COALESCE(valor_parcela,0),2)
+                ORDER BY numero_parcela ASC, id ASC";
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':data' => $data]);
-        return (int) $stmt->fetchColumn();
+        $stmt->execute([':eid' => $emprestimoId]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function contarAtrasados(string $data): int
+    public function buscarProximaParcelaAbertaPorEmprestimo(int $emprestimoId): ?array
     {
-        $sql = "SELECT COUNT(*)
-            FROM parcelas
-            WHERE status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-              AND data_vencimento < :data";
+        $sql = "SELECT
+                  id,
+                  emprestimo_id,
+                  numero_parcela,
+                  data_vencimento,
+                  valor_parcela,
+                  ROUND(COALESCE(valor_pago, 0), 2) AS valor_pago,
+                  status
+                FROM parcelas
+                WHERE emprestimo_id = :eid
+                  AND ROUND(COALESCE(valor_pago,0),2) < ROUND(COALESCE(valor_parcela,0),2)
+                ORDER BY numero_parcela ASC, id ASC
+                LIMIT 1";
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':data' => $data]);
-        return (int) $stmt->fetchColumn();
+        $stmt->execute([':eid' => $emprestimoId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
     }
 
-    // =========================================================
-    // ✅ NOVOS MÉTODOS (para "Editar Empréstimo" recalcular automático)
-    // =========================================================
-
-    /**
-     * Atualiza o valor_parcela de UMA parcela.
-     * (Não mexe em status/valor_pago.)
-     */
-    public function atualizarValorParcela(int $parcelaId, float $novoValorParcela): void
+    public function atualizarDataVencimento(int $parcelaId, string $novaData): bool
     {
         $sql = "UPDATE parcelas
-                SET valor_parcela = :vp
+                SET data_vencimento = :dv
                 WHERE id = :id";
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([
-            ':vp' => $novoValorParcela,
+        return $stmt->execute([
+            ':dv' => $novaData,
             ':id' => $parcelaId
         ]);
     }
 
     /**
-     * Retorna o maior numero_parcela existente para um empréstimo.
-     * Se não tiver nenhuma parcela, retorna 0.
+     * 🔥 VERSÃO DEFINITIVA — sem loop, sem float bug
      */
-    public function buscarMaiorNumeroParcela(int $emprestimoId): int
+    public function adicionarPagamentoNaParcela(int $parcelaId, float $valor): bool
     {
-        $sql = "SELECT COALESCE(MAX(numero_parcela), 0)
-                FROM parcelas
-                WHERE emprestimo_id = :eid";
+        if ($parcelaId <= 0 || $valor <= 0) return false;
 
-        $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([':eid' => $emprestimoId]);
-        return (int) $stmt->fetchColumn();
+        $sqlSel = "SELECT valor_parcela, COALESCE(valor_pago,0) AS valor_pago
+               FROM parcelas
+               WHERE id = :id
+               LIMIT 1";
+
+        $stmtSel = $this->pdo->prepare($sqlSel);
+        $stmtSel->execute([':id' => $parcelaId]);
+        $parcela = $stmtSel->fetch(PDO::FETCH_ASSOC);
+
+        if (!$parcela) return false;
+
+        $valorParcela = round((float)$parcela['valor_parcela'], 2);
+        $valorAtual   = round((float)$parcela['valor_pago'], 2);
+
+        $novoValor = round($valorAtual + $valor, 2);
+
+        if ($novoValor >= $valorParcela) {
+            $novoValor = $valorParcela;
+            $status = 'PAGA';
+
+            $sqlUpd = "UPDATE parcelas
+                   SET valor_pago = :vp,
+                       status = :st,
+                       pago_em = NOW()
+                   WHERE id = :id";
+        } elseif ($novoValor > 0) {
+            $status = 'PARCIAL';
+
+            $sqlUpd = "UPDATE parcelas
+                   SET valor_pago = :vp,
+                       status = :st
+                   WHERE id = :id";
+        } else {
+            $status = 'ABERTA';
+
+            $sqlUpd = "UPDATE parcelas
+                   SET valor_pago = :vp,
+                       status = :st
+                   WHERE id = :id";
+        }
+
+        $stmtUpd = $this->pdo->prepare($sqlUpd);
+
+        return $stmtUpd->execute([
+            ':vp' => $novoValor,
+            ':st' => $status,
+            ':id' => $parcelaId
+        ]);
     }
 
-    /**
-     * Remove parcelas excedentes quando reduzir a quantidade.
-     * Segurança:
-     * - só remove parcelas com numero_parcela > :max
-     * - só remove se estiver em status aberto/parcial/atrasado
-     * - e com valor_pago = 0 (pra não apagar coisa já mexida)
-     */
-    public function removerParcelasExcedentes(int $emprestimoId, int $numeroMax): int
+
+    // ===== Vencimentos =====
+
+    public function listarVencimentos(DateTime $data): array
     {
-        $sql = "DELETE FROM parcelas
-                WHERE emprestimo_id = :eid
-                  AND numero_parcela > :max
-                  AND status IN ('ABERTA','PARCIAL','ATRASADA','ATRASADO')
-                  AND (valor_pago IS NULL OR valor_pago = 0)";
+        $d = $data->format('Y-m-d');
+
+        $sql = "
+          SELECT *
+          FROM parcelas p
+          INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+          INNER JOIN clientes c ON c.id = e.cliente_id
+          WHERE DATE(p.data_vencimento) <= :d
+            AND e.status <> 'QUITADO'
+          ORDER BY p.data_vencimento ASC, p.numero_parcela ASC
+        ";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':d' => $d]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    public function listarVencimentosEntre(DateTime $ini, DateTime $fim): array
+    {
+        $di = $ini->format('Y-m-d');
+        $df = $fim->format('Y-m-d');
+
+        $sql = "
+          SELECT *
+          FROM parcelas p
+          INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+          INNER JOIN clientes c ON c.id = e.cliente_id
+          WHERE DATE(p.data_vencimento) BETWEEN :di AND :df
+            AND e.status <> 'QUITADO'
+          ORDER BY p.data_vencimento ASC, p.numero_parcela ASC
+        ";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
-            ':eid' => $emprestimoId,
-            ':max' => $numeroMax
+            ':di' => $di,
+            ':df' => $df
         ]);
 
-        return (int) $stmt->rowCount();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 }

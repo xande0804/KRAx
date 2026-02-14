@@ -117,6 +117,9 @@ class EmprestimoDAO
      * Lista para a tela de empréstimos (com filtro)
      * - proximo_vencimento: menor data_vencimento APENAS das parcelas em aberto
      * - parcelas_pagas: conta parcelas pagas/quitadas (ou que já atingiram valor_parcela)
+     *
+     * ✅ REGRA NOVA:
+     * - se o empréstimo está QUITADO, força parcelas_pagas = quantidade_parcelas e proximo_vencimento = NULL
      */
     public function listarComFiltro(?string $filtro = null): array
     {
@@ -129,30 +132,36 @@ class EmprestimoDAO
             e.quantidade_parcelas,
             e.status,
 
-            -- ✅ Próximo vencimento = menor vencimento das parcelas ainda não pagas
-            MIN(
-              CASE 
-                WHEN p.id IS NULL THEN NULL
-                WHEN UPPER(p.status) IN ('ABERTA','PARCIAL','ATRASADO') THEN p.data_vencimento
-                WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago < p.valor_parcela) THEN p.data_vencimento
-                ELSE NULL
-              END
-            ) AS proximo_vencimento,
+            -- ✅ Próximo vencimento (se QUITADO, não tem)
+            CASE 
+              WHEN UPPER(e.status) = 'QUITADO' THEN NULL
+              ELSE MIN(
+                CASE 
+                  WHEN p.id IS NULL THEN NULL
+                  WHEN UPPER(p.status) IN ('ABERTA','PARCIAL','ATRASADO','ATRASADA') THEN p.data_vencimento
+                  WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago < p.valor_parcela) THEN p.data_vencimento
+                  ELSE NULL
+                END
+              )
+            END AS proximo_vencimento,
 
-            -- ✅ Parcelas pagas: PAGA/QUITADA OU valor_pago >= valor_parcela
-            COALESCE(SUM(
-              CASE 
-                WHEN p.id IS NULL THEN 0
-                WHEN UPPER(p.status) IN ('PAGA','QUITADA') THEN 1
-                WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago >= p.valor_parcela) THEN 1
-                ELSE 0
-              END
-            ), 0) AS parcelas_pagas
+            -- ✅ Parcelas pagas (se QUITADO, força 100%)
+            CASE 
+              WHEN UPPER(e.status) = 'QUITADO' THEN e.quantidade_parcelas
+              ELSE COALESCE(SUM(
+                CASE 
+                  WHEN p.id IS NULL THEN 0
+                  WHEN UPPER(p.status) IN ('PAGA','QUITADA') THEN 1
+                  WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago >= p.valor_parcela) THEN 1
+                  ELSE 0
+                END
+              ), 0)
+            END AS parcelas_pagas
 
         FROM emprestimos e
         INNER JOIN clientes c ON c.id = e.cliente_id
         LEFT JOIN parcelas p ON p.emprestimo_id = e.id
-    ";
+        ";
 
         $where = [];
 
@@ -168,7 +177,7 @@ class EmprestimoDAO
             $where[] = "e.status = 'ATIVO' AND EXISTS (
                 SELECT 1 FROM parcelas px
                 WHERE px.emprestimo_id = e.id
-                  AND UPPER(px.status) IN ('ABERTA','PARCIAL','ATRASADO')
+                  AND UPPER(px.status) IN ('ABERTA','PARCIAL','ATRASADO','ATRASADA')
                   AND px.data_vencimento < CURDATE()
             )";
         }
@@ -209,23 +218,31 @@ class EmprestimoDAO
             e.quantidade_parcelas,
             e.status,
 
-            COALESCE(SUM(
-              CASE 
-                WHEN p.id IS NULL THEN 0
-                WHEN UPPER(p.status) IN ('PAGA','QUITADA') THEN 1
-                WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago >= p.valor_parcela) THEN 1
-                ELSE 0
-              END
-            ), 0) AS parcelas_pagas,
+            -- ✅ Parcelas pagas (se QUITADO, força 100%)
+            CASE 
+              WHEN UPPER(e.status) = 'QUITADO' THEN e.quantidade_parcelas
+              ELSE COALESCE(SUM(
+                CASE 
+                  WHEN p.id IS NULL THEN 0
+                  WHEN UPPER(p.status) IN ('PAGA','QUITADA') THEN 1
+                  WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago >= p.valor_parcela) THEN 1
+                  ELSE 0
+                END
+              ), 0)
+            END AS parcelas_pagas,
 
-            MIN(
-              CASE 
-                WHEN p.id IS NULL THEN NULL
-                WHEN UPPER(p.status) IN ('ABERTA','PARCIAL','ATRASADO') THEN p.data_vencimento
-                WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago < p.valor_parcela) THEN p.data_vencimento
-                ELSE NULL
-              END
-            ) AS proximo_vencimento
+            -- ✅ Próximo vencimento (se QUITADO, não tem)
+            CASE 
+              WHEN UPPER(e.status) = 'QUITADO' THEN NULL
+              ELSE MIN(
+                CASE 
+                  WHEN p.id IS NULL THEN NULL
+                  WHEN UPPER(p.status) IN ('ABERTA','PARCIAL','ATRASADO','ATRASADA') THEN p.data_vencimento
+                  WHEN (p.valor_pago IS NOT NULL AND p.valor_parcela IS NOT NULL AND p.valor_pago < p.valor_parcela) THEN p.data_vencimento
+                  ELSE NULL
+                END
+              )
+            END AS proximo_vencimento
 
           FROM emprestimos e
           INNER JOIN clientes c ON c.id = e.cliente_id

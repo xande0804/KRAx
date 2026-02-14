@@ -19,6 +19,12 @@
     return Number.isFinite(n) ? n : 0;
   }
 
+  function round2(n) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return 0;
+    return Math.round(x * 100) / 100;
+  }
+
   // ✅ pt-BR: "1.234,56" -> 1234.56
   function parseMoneyBR(str) {
     const s0 = String(str ?? "").trim();
@@ -69,6 +75,49 @@
     const saldoQuitacao = Math.max(0, totalComJuros - totalPago);
 
     return { principal, jurosPct, qtd, tipoV, prestacao, totalComJuros, jurosPrestacao, totalPago, saldoQuitacao };
+  }
+
+  // ✅ NOVO: calcula sugestão de QUITAÇÃO pela regra (parcelas restantes + 1 juros)
+  function calcQuitacaoNova(emp, parcelasArr) {
+    const principal = toNumber(emp.valor_principal);
+    const jurosPct = toNumber(emp.porcentagem_juros);
+    const qtdTotal = Math.max(1, Number(emp.quantidade_parcelas || parcelasArr.length || 1) || 1);
+    const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
+
+    // soma faltantes nas parcelas ainda abertas/parciais/atrasadas
+    let faltanteParcelas = 0;
+    let qtdRestantes = 0;
+
+    const abertas = Array.isArray(parcelasArr) ? parcelasArr : [];
+
+    for (const p of abertas) {
+      const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+      const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+      const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
+
+      const ehAberta =
+        st === "ABERTA" || st === "PARCIAL" || st === "ATRASADA" || st === "ATRASADO" ||
+        (vpar > 0 && vp < vpar);
+
+      if (!ehAberta) continue;
+
+      const falt = vpar - vp;
+      if (falt > 0) {
+        faltanteParcelas += falt;
+        qtdRestantes++;
+      }
+    }
+
+    if (qtdRestantes <= 0 || faltanteParcelas <= 0) return 0;
+
+    const jurosTotalContrato = principal * (jurosPct / 100);
+    const jurosUnit = (tipoV === "MENSAL") ? jurosTotalContrato : (jurosTotalContrato / qtdTotal);
+
+    // Quitação = saldoParcelasAbertas - (qtdRestantes - 1) * jurosUnit
+    let totalQuit = faltanteParcelas - ((qtdRestantes - 1) * jurosUnit);
+    if (totalQuit < 0) totalQuit = 0;
+
+    return round2(totalQuit);
   }
 
   function closeAnyOpenModal() {
@@ -139,7 +188,7 @@
               <select name="tipo_pagamento" data-pay="tipo_pagamento" required>
                 <option value="PARCELA">Prestação</option>
                 <option value="JUROS">Apenas juros</option>
-                <option value="QUITACAO">Quitação (total)</option>
+                <option value="QUITACAO">Quitação</option>
                 <option value="EXTRA">Valor parcial</option>
               </select>
               <div class="muted" style="margin-top:6px;" data-pay="hint"></div>
@@ -379,10 +428,14 @@
 
         setPay("emprestimo_info", infoCompleto);
 
-        // ✅ guarda os valores "teóricos" (ainda usados pra JUROS/QUITACAO/EXTRA)
+        // ✅ valores teóricos
         modal.dataset.prestacao = String(c.prestacao);
         modal.dataset.jurosPrestacao = String(c.jurosPrestacao);
         modal.dataset.saldoQuitacao = String(c.saldoQuitacao);
+
+        // ✅ NOVO: sugestão de quitação pela regra nova
+        const quitNova = calcQuitacaoNova(emp, parcelasArr);
+        modal.dataset.quitacaoNova = String(quitNova);
 
         function getParcelaById(id) {
           const pid = Number(id || 0);
@@ -394,7 +447,6 @@
           const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
           const vp = toNumber(p.valor_pago ?? 0);
           const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
-          // aberta/atrasada/parcial ou ainda não completou o valor
           if (st === "ABERTA" || st === "PARCIAL" || st === "ATRASADA" || st === "ATRASADO") return true;
           if (vpar > 0 && vp < vpar) return true;
           return false;
@@ -403,7 +455,6 @@
         function nextParcelaAberta() {
           const abertas = parcelasArr.filter(isParcelaAberta);
           if (!abertas.length) return null;
-          // já vem ORDER BY numero_parcela ASC do DAO, mas garantimos:
           abertas.sort((a, b) => Number(a.numero_parcela ?? a.numeroParcela ?? 0) - Number(b.numero_parcela ?? b.numeroParcela ?? 0));
           return abertas[0];
         }
@@ -421,6 +472,7 @@
           const prest = toNumber(modal.dataset.prestacao);
           const juros = toNumber(modal.dataset.jurosPrestacao);
           const saldo = toNumber(modal.dataset.saldoQuitacao);
+          const quitNovaNum = toNumber(modal.dataset.quitacaoNova);
 
           if (valorInput) {
             valorInput.required = true;
@@ -433,7 +485,6 @@
               if (!parcelaHidden.value && modal.dataset.defaultParcelaId) {
                 parcelaHidden.value = modal.dataset.defaultParcelaId;
               }
-              // se ainda tá vazio, tenta apontar pra próxima parcela aberta (pra sugestão ficar certinha)
               if (!parcelaHidden.value) {
                 const nx = nextParcelaAberta();
                 const nxId = nx ? String(nx.id ?? nx.parcela_id ?? "") : "";
@@ -445,8 +496,6 @@
           }
 
           if (t === "PARCELA") {
-            // ✅ AQUI É A CORREÇÃO:
-            // Sugestão deve vir do banco (valor_parcela / valor_pago) e não do cálculo teórico.
             let alvo = null;
 
             const pid = parcelaHidden ? parcelaHidden.value : "";
@@ -461,10 +510,13 @@
           } else if (t === "JUROS") {
             setPay("valor_pago", formatMoneyInputBR(juros));
             setHint(`Juros desta prestação: ${money(juros)}`);
-          } else if (t === "QUITACAO" || t === "INTEGRAL") {
-            // segue estimativa do front (o backend já recalcula QUITACAO mesmo)
+          } else if (t === "QUITACAO") {
+            setPay("valor_pago", formatMoneyInputBR(quitNovaNum));
+            setHint(`Quitação (parcelas restantes + 1 juros)`);
+            if (valorInput) valorInput.readOnly = true;
+          } else if (t === "INTEGRAL") {
             setPay("valor_pago", formatMoneyInputBR(saldo));
-            setHint(`Quitação (saldo estimado): ${money(saldo)}`);
+            setHint(`Pagamento integral (saldo estimado): ${money(saldo)}`);
             if (valorInput) valorInput.readOnly = true;
           } else if (t === "EXTRA") {
             setPay("valor_pago", "");

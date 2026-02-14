@@ -235,9 +235,9 @@
               data-venc-section="${esc(section)}"
               aria-expanded="${open ? "true" : "false"}"
             >
-              <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
-              <span class="venc-group__name"><strong>${nome}</strong></span>
-              <span class="venc-group__count">(${qtd})</span>
+            <span class="venc-group__count">(${qtd})</span>
+            <span class="venc-group__name"><strong>${nome}</strong></span>
+            <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
             </button>
 
             <div class="venc-group__body" style="display:${open ? "" : "none"};">
