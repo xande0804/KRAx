@@ -64,8 +64,24 @@
     return false;
   }
 
-  // ✅ ajuda: determina situação real da parcela olhando valor_pago x valor_parcela
-  function calcSituacaoParcela(p, isQuitado) {
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+  }
+
+  function onlyDate(yyyyMMdd) {
+    return String(yyyyMMdd || "").slice(0, 10);
+  }
+
+  // comparação segura (YYYY-MM-DD)
+  function isBeforeISO(a, b) {
+    const aa = onlyDate(a);
+    const bb = onlyDate(b);
+    if (!aa || !bb) return false;
+    return aa < bb;
+  }
+
+  // ✅ ajuda: determina situação real da parcela olhando valor_pago x valor_parcela + vencimento
+  function calcSituacaoParcela(p, isQuitado, hojeStr) {
     const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
     const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
     const valorPago = toNumber(p.valor_pago ?? p.valorPago ?? 0);
@@ -80,7 +96,14 @@
 
     const isParcial = !isQuitado && !isPagaReal && vpC > 0 && vparC > 0 && vpC < vparC;
 
-    const isAtrasada = !isQuitado && (stp === "ATRASADO" || stp === "ATRASADA");
+    const vencISO = onlyDate(p.data_vencimento ?? p.dataVencimento);
+    const vencidaPorData = !isQuitado && vencISO && isBeforeISO(vencISO, hojeStr);
+
+    // ✅ ATRASADA (real): vencida por data E ainda não paga
+    const isAtrasadaReal = vencidaPorData && !isPagaReal;
+
+    // ✅ PAGA ATRASADA: paga, mas vencimento já passou (pagou depois do venc.)
+    const isPagaAtrasada = isPagaReal && vencidaPorData;
 
     const restanteC = Math.max(0, vparC - vpC);
 
@@ -90,7 +113,9 @@
       valorPago,
       isPagaReal,
       isParcial,
-      isAtrasada,
+      isAtrasadaReal,
+      isPagaAtrasada,
+      vencISO,
       restanteC
     };
   }
@@ -248,6 +273,8 @@
       const parcelas = Array.isArray(dados.parcelas) ? dados.parcelas : [];
       const pagamentos = Array.isArray(dados.pagamentos) ? dados.pagamentos : [];
 
+      const hojeStr = todayISO();
+
       set("cliente_nome", cli.nome || "—");
       set("cliente_tel", cli.telefone || "—");
 
@@ -305,26 +332,18 @@
 
       set("valor", moneyFromCents(principalC));
 
-      // ✅ hint inteligente: se última prestação for diferente, mostra isso
-      const sugestaoUltimaC = totalComJurosC - (valorPrestacaoC * (totalParcelas - 1));
-      if (totalParcelas > 1 && sugestaoUltimaC > 0 && sugestaoUltimaC !== valorPrestacaoC) {
-        set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
-      } else {
-        set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
-      }
+      set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
 
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
       set("total_juros", moneyFromCents(totalComJurosC));
       set("saldo_hint", `Pago: ${moneyFromCents(totalPagoTudoC)} • Falta: ${moneyFromCents(saldoC)}`);
 
       // ✅ CONTAGEM DE PARCELAS:
-      // - QUITADO: 100%
-      // - caso contrário: só conta como paga se REALMENTE quitou a parcela (não só "pagou um pouco")
       let pagas = 0;
       if (isQuitado) {
         pagas = totalParcelas;
       } else {
-        pagas = parcelas.filter((p) => calcSituacaoParcela(p, false).isPagaReal).length;
+        pagas = parcelas.filter((p) => calcSituacaoParcela(p, false, hojeStr).isPagaReal).length;
       }
       set("parcelas", `${pagas} / ${totalParcelas || 0}`);
 
@@ -437,9 +456,7 @@
         };
       }
 
-      // ✅ LISTA DE PRESTAÇÕES:
-      // - NÃO marcar PARCIAL como "paga"
-      // - Se estiver PARCIAL por adiantamento, mostrar o RESTANTE (valor_parcela - valor_pago)
+      // ✅ LISTA DE PRESTAÇÕES (com atraso em vermelho / paga atrasada em verde água)
       if (installments) {
         if (!parcelas.length) {
           installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma prestação encontrada.</div>`;
@@ -447,14 +464,12 @@
           installments.innerHTML = parcelas
             .map((p) => {
               const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
-              const venc = formatDateBR(p.data_vencimento ?? p.dataVencimento);
+              const vencISO = onlyDate(p.data_vencimento ?? p.dataVencimento);
+              const vencBR = formatDateBR(vencISO);
 
-              const s = calcSituacaoParcela(p, isQuitado);
+              const s = calcSituacaoParcela(p, isQuitado, hojeStr);
 
               // ✅ valor exibido:
-              // - Parcial => mostra restante
-              // - caso contrário => mostra valor total da parcela (do banco)
-              // - fallback: cálculo teórico
               let valTxt = "—";
               if (s.isParcial) {
                 valTxt = moneyFromCents(s.restanteC);
@@ -463,37 +478,55 @@
                 valTxt = valorParcela > 0 ? money(valorParcela) : moneyFromCents(valorPrestacaoC);
               }
 
+              // bolinha de status
               const dotCls = s.isPagaReal
-                ? "inst-dot--ok"
+                ? (s.isPagaAtrasada ? "inst-dot--ok" : "inst-dot--ok")
                 : s.isParcial
                   ? "inst-dot--warn"
-                  : s.isAtrasada
+                  : s.isAtrasadaReal
                     ? "inst-dot--danger"
                     : "";
 
-              const labelStatus = isQuitado
-                ? "Paga"
-                : s.isPagaReal
-                  ? "Paga"
-                  : s.isParcial
-                    ? "Parcial"
-                    : "";
+              // ✅ badge de status (o que você pediu)
+              let badge = "";
+              if (isQuitado) {
+                badge = `<span class="badge badge--success" style="margin-left:10px;">Paga</span>`;
+              } else if (s.isAtrasadaReal) {
+                badge = `<span class="badge badge--danger" style="margin-left:10px;">Atrasada</span>`;
+              } else if (s.isPagaReal && s.isPagaAtrasada) {
+                // verde água / mais escuro (inline pra não depender de CSS)
+                badge = `<span class="badge badge--success" style="margin-left:10px; background:#0f766e; border-color:#0f766e; color:#fff;">Paga (atrasada)</span>`;
+              } else if (s.isPagaReal) {
+                badge = `<span class="badge badge--success" style="margin-left:10px;">Paga</span>`;
+              } else if (s.isParcial) {
+                badge = `<span class="badge badge--info" style="margin-left:10px;">Parcial</span>`;
+              }
 
+              // linha extra no parcial
               const subLinha = (!isQuitado && s.isParcial)
                 ? `<span class="muted" style="margin-left:10px;">Restante após adiantamento</span>`
                 : ``;
 
+              // ✅ se atrasada, pinta a linha (leve) e data em vermelho
+              const rowStyle = s.isAtrasadaReal
+                ? `style="border-left:4px solid #ef4444; padding-left:10px;"`
+                : ``;
+
+              const vencStyle = s.isAtrasadaReal
+                ? `style="color:#ef4444; font-weight:600;"`
+                : ``;
+
               return `
-                <div class="installment-row">
+                <div class="installment-row" ${rowStyle}>
                   <div class="inst-left">
                     <span class="inst-dot ${dotCls}"></span>
                     <span class="inst-title">Prestação ${esc(num)}</span>
-                    ${labelStatus ? `<span class="muted" style="margin-left:10px;">${esc(labelStatus)}</span>` : ``}
+                    ${badge}
                     ${subLinha}
                   </div>
 
                   <div class="inst-right">
-                    <span>${esc(venc)}</span>
+                    <span ${vencStyle}>${esc(vencBR)}</span>
                     <span class="inst-value">${esc(valTxt)}</span>
                   </div>
                 </div>

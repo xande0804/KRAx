@@ -336,11 +336,15 @@
         }
 
         GestorModal.close("modalLancarPagamento");
-        onSuccess("Pagamento lançado!");
 
-        setTimeout(() => {
-          afterSuccessReturnFlow();
-        }, 120);
+        // ✅ Toast sem reload automático
+        onSuccess("Pagamento lançado!", { reload: false, delay: 0 });
+
+        // ✅ NÃO reabre detalhes.
+        // Só atualiza a lista do fundo (se existir), sem piscar.
+        if (typeof window.refreshEmprestimosList === "function") window.refreshEmprestimosList();
+        if (typeof window.refreshClientesList === "function") window.refreshClientesList();
+
 
       } catch (err) {
         console.error(err);

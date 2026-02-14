@@ -67,3 +67,78 @@
   color: var(--muted);
 }
 
+/* Autocomplete (Novo Empréstimo) */
+.acbox{
+  position:absolute;
+  left:0;
+  right:0;
+  top:100%;
+  margin-top:6px;
+  background:#fff;
+  border:1px solid #e6e8ef;
+  border-radius:12px;
+  box-shadow:0 10px 30px rgba(0,0,0,.08);
+  max-height:240px;          /* ~6/7 itens */
+  overflow:auto;
+  z-index:9999;
+}
+
+.acitem{
+  padding:10px 12px;
+  cursor:pointer;
+  border-bottom:1px solid #f0f1f6;
+  -webkit-user-select:none;
+  user-select:none;
+}
+
+.acitem:last-child{ border-bottom:0; }
+
+.acitem:hover,
+.acitem.is-active{
+  background:#f3f6ff;
+}
+
+.acitem strong{
+  font-weight:800;
+}
+
+/* =========================
+   WhatsApp icon button
+========================= */
+.iconbtn--wpp{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  width:34px;
+  height:34px;
+  border-radius:10px;
+  border:1px solid #e6e8ef;
+  background:#fff;
+  cursor:pointer;
+  text-decoration:none;
+  padding:0;
+}
+
+.iconbtn--wpp svg{
+  width:18px;
+  height:18px;
+  display:block;
+}
+
+.iconbtn--wpp:hover{
+  background:#f3f6ff;
+}
+
+.iconbtn--wpp.is-disabled{
+  opacity:.4;
+  cursor:not-allowed;
+}
+
+.iconbtn--wpp.is-disabled:hover{
+  background:#fff;
+}
+
+/* Verde WhatsApp "oficial" */
+.iconbtn--wpp .wpp-bg{ fill:#25D366; }
+.iconbtn--wpp .wpp-fg{ fill:#fff; }
+

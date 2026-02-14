@@ -108,6 +108,40 @@
   overflow: auto;
 }
 
+/* Autocomplete (Novo Empréstimo) */
+.acbox{
+  position:absolute;
+  left:0;
+  right:0;
+  top:100%;
+  margin-top:6px;
+  background:#fff;
+  border:1px solid #e6e8ef;
+  border-radius:12px;
+  box-shadow:0 10px 30px rgba(0,0,0,.08);
+  max-height:240px;          /* ~6/7 itens */
+  overflow:auto;
+  z-index:9999;
+}
+
+.acitem{
+  padding:10px 12px;
+  cursor:pointer;
+  border-bottom:1px solid #f0f1f6;
+  -webkit-user-select:none;
+  user-select:none;
+}
+
+.acitem:last-child{ border-bottom:0; }
+
+.acitem:hover,
+.acitem.is-active{
+  background:#f3f6ff;
+}
+
+.acitem strong{
+  font-weight:800;
+}
 
 
 

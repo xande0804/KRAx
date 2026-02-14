@@ -20,8 +20,13 @@
     return `<span class="badge badge--info">Ativo</span>`;
   }
 
-  function safeText(v) {
-    return String(v ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function esc(s) {
+    return String(s ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   }
 
   function formatDateBR(yyyyMMdd) {
@@ -31,6 +36,86 @@
     const [y, m, d] = only.split("-");
     if (!y || !m || !d) return s;
     return `${d}/${m}/${y}`;
+  }
+
+  function formatBytes(bytes) {
+    const b = Number(bytes) || 0;
+    if (b <= 0) return "—";
+    const units = ["B", "KB", "MB", "GB"];
+    let n = b;
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) {
+      n = n / 1024;
+      i++;
+    }
+    const val = i === 0 ? String(Math.round(n)) : n.toFixed(1).replace(".", ",");
+    return `${val} ${units[i]}`;
+  }
+
+  function extFromName(name) {
+    const s = String(name || "");
+    const idx = s.lastIndexOf(".");
+    return idx >= 0 ? s.slice(idx + 1).toLowerCase() : "";
+  }
+
+  function docKind(doc) {
+    const mime = String(doc?.mime || "").toLowerCase();
+    const name = String(doc?.nome_original || doc?.arquivo || "");
+    const ext = extFromName(name);
+    if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "webp", "gif", "bmp"].includes(ext)) return "image";
+    if (mime === "application/pdf" || ext === "pdf") return "pdf";
+    return "file";
+  }
+
+  function docIcon(doc) {
+    const kind = docKind(doc);
+    if (kind === "image") return "🖼️";
+    if (kind === "pdf") return "📄";
+    return "📎";
+  }
+
+  function renderDocs(list) {
+    if (!Array.isArray(list) || list.length === 0) {
+      return `<div class="muted" style="margin-top:8px;">Nenhum documento anexado.</div>`;
+    }
+
+    return `
+      <div class="docs-list" style="display:grid; gap:10px; margin-top:10px;">
+        ${list.map((d) => {
+      const url = String(d?.url || "");
+      const nome = String(d?.nome_original || d?.arquivo || "Documento");
+      const criado = d?.criado_em ? formatDateBR(String(d.criado_em).slice(0, 10)) : "";
+      const tamanho = formatBytes(d?.tamanho);
+
+      const kind = docKind(d);
+      const icon = docIcon(d);
+
+      const preview = (kind === "image" && url)
+        ? `<img src="${esc(url)}" alt="${esc(nome)}" style="width:46px; height:46px; object-fit:cover; border-radius:10px; border:1px solid rgba(0,0,0,.08);" />`
+        : `<div style="width:46px; height:46px; border-radius:10px; border:1px solid rgba(0,0,0,.08); display:flex; align-items:center; justify-content:center; font-size:18px;">${icon}</div>`;
+
+      return `
+            <div class="doc-row" style="display:flex; gap:12px; align-items:center; padding:10px; border:1px solid rgba(0,0,0,.08); border-radius:14px;">
+              ${preview}
+
+              <div style="min-width:0; flex:1;">
+                <div style="font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+                  ${esc(nome)}
+                </div>
+                <div class="muted" style="margin-top:2px; font-size:12px;">
+                  ${criado ? `Enviado em ${esc(criado)}` : ""}${criado ? " • " : ""}${esc(tamanho)}
+                </div>
+              </div>
+
+              <div style="display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end;">
+                ${url ? `<a class="btn btn--secondary" href="${esc(url)}" target="_blank" rel="noopener">👁️ Ver</a>` : ""}
+                ${url ? `<a class="btn" href="${esc(url)}" download>⬇️ Baixar</a>` : ""}
+              </div>
+            </div>
+          `;
+    }).join("")}
+      </div>
+    `;
   }
 
   // ========= INJECT MODAL =========
@@ -68,7 +153,16 @@
               <div class="client-line"><span class="icon-bullet">🚗</span> <span data-fill="placa">—</span></div>
               <div class="client-line"><span class="icon-bullet">👥</span> Indicação: <strong data-fill="indicacao">—</strong></div>
 
-              <div class="client-actions">
+              <!-- ✅ NOVO: Documentos -->
+              <div class="hr" style="margin:14px 0;"></div>
+              <div>
+                <div class="section-title-row">📎 Documentos</div>
+                <div id="docsListWrap" style="margin-top:8px;">
+                  <div class="muted">Carregando documentos...</div>
+                </div>
+              </div>
+
+              <div class="client-actions" style="margin-top:14px;">
                 <button class="btn" type="button" id="btnEditarCliente">✏️ Editar</button>
                 <button class="btn btn--danger" type="button" id="btnExcluirCliente">🗑️ Excluir</button>
               </div>
@@ -92,19 +186,18 @@
                 </div>
 
                 <div class="loan-actions">
-                
-                <button
-                class="btn btn--primary"
-                type="button"
-                data-modal-open="lancarPagamento"
-                id="btnPagamentoEmprestimoAtivo"
-                >
-                💳 Lançar pagamento
-                </button>
+                  <button
+                    class="btn btn--primary"
+                    type="button"
+                    data-modal-open="lancarPagamento"
+                    id="btnPagamentoEmprestimoAtivo"
+                  >
+                    💳 Lançar pagamento
+                  </button>
 
-                <button class="btn btn--secondary" type="button" id="btnGerenciarEmprestimoAtivo">
-                  Gerenciar
-                </button>
+                  <button class="btn btn--secondary" type="button" id="btnGerenciarEmprestimoAtivo">
+                    Gerenciar
+                  </button>
                 </div>
               </div>
 
@@ -181,8 +274,12 @@
     if (histList) histList.innerHTML = "";
     if (histEmpty) histEmpty.style.display = "none";
 
+    // prepara docs UI
+    const docsWrap = modal.querySelector("#docsListWrap");
+    if (docsWrap) docsWrap.innerHTML = `<div class="muted">Carregando documentos...</div>`;
+
     try {
-      // 1) detalhes do cliente
+      // 1) detalhes do cliente (✅ agora vem documentos também)
       const res = await fetch(`/KRAx/public/api.php?route=clientes/detalhes&id=${encodeURIComponent(id)}`);
       const json = await res.json();
       if (!json.ok) {
@@ -198,6 +295,11 @@
       fill("profissao", c.profissao);
       fill("placa", c.placa_carro);
       fill("indicacao", c.indicacao);
+
+      // ✅ DOCUMENTOS no detalhes
+      if (docsWrap) {
+        docsWrap.innerHTML = renderDocs(c.documentos || []);
+      }
 
       // datasets pros botões
       const btnNovo = modal.querySelector("#btnNovoEmprestimoDoCliente");
@@ -293,12 +395,7 @@
             const parcelasTxt = getParcelasTxt(e);
             const st = normStatus(e);
 
-            const parcelasSafe = String(parcelasTxt ?? "—")
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;")
-              .replace(/"/g, "&quot;")
-              .replace(/'/g, "&#039;");
+            const parcelasSafe = esc(String(parcelasTxt ?? "—"));
 
             return `
               <article class="list-item" style="padding:12px;">
@@ -315,7 +412,7 @@
                     class="linkbtn"
                     type="button"
                     data-modal-open="detalhesEmprestimo"
-                    data-emprestimo-id="${empId}"
+                    data-emprestimo-id="${esc(empId)}"
                   >Ver</button>
                 </div>
               </article>

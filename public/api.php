@@ -29,6 +29,19 @@ switch ($route) {
         (new ClienteController())->excluir();
         break;
 
+    /* ============================
+       ✅ NOVO: DOCUMENTOS DO CLIENTE
+    ============================ */
+    case 'clientes/documentos/listar':
+        // GET: ?route=clientes/documentos/listar&cliente_id=123
+        (new ClienteController())->documentosListar();
+        break;
+
+    case 'clientes/documentos/excluir':
+        // POST: route=clientes/documentos/excluir { cliente_id, doc_id }
+        (new ClienteController())->documentosExcluir();
+        break;
+
     case 'emprestimos/criar':
         (new EmprestimoController())->criar();
         break;
@@ -68,7 +81,7 @@ switch ($route) {
     case 'emprestimos/por_cliente':
         (new EmprestimoController())->porCliente();
         break;
-        
+
     default:
         header('Content-Type: application/json');
         echo json_encode([

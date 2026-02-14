@@ -1,165 +1,379 @@
 // public/assets/js/modals/clientes/editarCliente.modal.js
 (function () {
-    const qs = window.qs;
-    const onError = window.onError || function () { };
-    const onSuccess = window.onSuccess || function () { };
+  const qs = window.qs;
+  const onError = window.onError || function () { };
+  const onSuccess = window.onSuccess || function () { };
+  const toast = window.toast || function () { };
+  const GestorModal = window.GestorModal;
 
-    function injectModalEditarCliente() {
-        if (qs("#modalEditarCliente")) return;
+  const API = "/KRAx/public/api.php";
 
-        const modal = document.createElement("section");
-        modal.className = "modal";
-        modal.id = "modalEditarCliente";
-        modal.setAttribute("aria-hidden", "true");
+  function esc(str) {
+    return String(str ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
 
-        modal.innerHTML = `
-        <div class="modal__dialog">
-          <header class="modal__header">
-            <div>
-              <h3 class="modal__title">Editar cliente</h3>
-              <p class="modal__subtitle">Atualize os dados do cliente.</p>
-            </div>
-            <button class="iconbtn" type="button" data-modal-close="modalEditarCliente">×</button>
-          </header>
-  
-          <form class="modal__body" id="formEditarCliente" action="/KRAx/public/api.php?route=clientes/atualizar" method="post">
-            <input type="hidden" name="id" />
-  
-            <div class="form-grid">
-              <div class="field form-span-2">
-                <label>Nome *</label>
-                <input name="nome" required />
-              </div>
-  
-              <div class="field">
-                <label>CPF</label>
-                <input name="cpf" />
-              </div>
-  
-              <div class="field">
-                <label>Telefone</label>
-                <input name="telefone" />
-              </div>
-  
-              <div class="field form-span-2">
-                <label>Endereço</label>
-                <input name="endereco" />
-              </div>
-  
-              <div class="field">
-                <label>Profissão</label>
-                <input name="profissao" />
-              </div>
-  
-              <div class="field">
-                <label>Placa do carro</label>
-                <input name="placa_carro" />
-              </div>
-  
-              <div class="field form-span-2">
-                <label>Indicação</label>
-                <input name="indicacao" />
-              </div>
-            </div>
-  
-            <footer class="modal__footer modal__footer--end">
-              <button class="btn" type="button" data-modal-close="modalEditarCliente">Cancelar</button>
-              <button class="btn btn--primary" type="submit">Salvar alterações</button>
-            </footer>
-          </form>
-        </div>
-      `;
+  function fmtBytes(n) {
+    const v = Number(n || 0);
+    if (!Number.isFinite(v) || v <= 0) return "";
+    const kb = v / 1024;
+    if (kb < 1024) return `${kb.toFixed(1)} KB`;
+    return `${(kb / 1024).toFixed(1)} MB`;
+  }
 
-        document.body.appendChild(modal);
+  function isImageMime(mime) {
+    return String(mime || "").toLowerCase().startsWith("image/");
+  }
 
-        // ativa máscaras no modal
-        if (typeof applyMasks === "function") {
-            applyMasks(modal);
+  function iconByMime(mime) {
+    const m = String(mime || "").toLowerCase();
+    if (m.includes("pdf")) return "📄";
+    if (isImageMime(m)) return "🖼️";
+    if (m.includes("zip") || m.includes("rar")) return "🗜️";
+    if (m.includes("word")) return "📝";
+    if (m.includes("excel") || m.includes("spreadsheet")) return "📊";
+    return "📎";
+  }
 
-            // SUBMIT
-            const form = qs("#formEditarCliente");
-            form.addEventListener("submit", async (e) => {
-                e.preventDefault();
-
-                try {
-                    const fd = new FormData(form);
-
-                    const res = await fetch("/KRAx/public/api.php?route=clientes/atualizar", {
-                        method: "POST",
-                        body: fd,
-                    });
-
-                    const json = await res.json();
-
-                    if (!json.ok) {
-                        onError(json.mensagem || "Erro ao atualizar cliente");
-                        return;
-                    }
-
-                    GestorModal.close("modalEditarCliente");
-                    onSuccess("Cliente atualizado!", { reload: true });
-                } catch (err) {
-                    console.error(err);
-                    onError("Erro de conexão com o servidor");
-                }
-            });
-
-
-        }
-
+  function buildDocsHtml(docs, clienteId) {
+    if (!Array.isArray(docs) || docs.length === 0) {
+      return `<div class="muted" style="padding:8px 0;">Nenhum documento anexado.</div>`;
     }
 
-    // ✅ FUNÇÃO QUE O INDEX VAI CHAMAR
-    window.openEditarCliente = async function openEditarCliente(clienteId) {
-        const id = String(clienteId || "");
-        if (!id) return;
+    return docs.map(d => {
+      const docId = esc(d.id || "");
+      const nome = esc(d.nome_original || d.arquivo || "Documento");
+      const url = esc(d.url || "#");
+      const mime = String(d.mime || "");
+      const size = fmtBytes(d.tamanho);
+      const icon = iconByMime(mime);
 
-        // garante que o modal existe
-        if (!document.getElementById("modalEditarCliente")) {
-            injectModalEditarCliente();
+      const preview = isImageMime(mime)
+        ? `<img src="${url}" alt="${nome}" style="width:44px;height:44px;object-fit:cover;border-radius:10px;border:1px solid rgba(0,0,0,.12);" />`
+        : `<div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid rgba(0,0,0,.12);">${icon}</div>`;
+
+      return `
+        <div class="doc-row" style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.06);">
+          ${preview}
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nome}</div>
+            <div class="muted" style="font-size:12px;">${esc(mime || "arquivo")} ${size ? "• " + esc(size) : ""}</div>
+          </div>
+
+          <a class="btn btn--secondary"
+             href="${url}"
+             target="_blank"
+             rel="noopener noreferrer"
+             style="padding:8px 10px;text-decoration:none;">
+            Abrir
+          </a>
+
+          <button class="btn btn--secondary"
+                  type="button"
+                  data-doc-delete="1"
+                  data-cliente-id="${esc(clienteId)}"
+                  data-doc-id="${docId}"
+                  style="padding:8px 10px;">
+            Excluir
+          </button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  async function fetchClienteDetalhes(id) {
+    const res = await fetch(`${API}?route=clientes/detalhes&id=${encodeURIComponent(id)}`);
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.mensagem || "Erro ao buscar cliente");
+    return json.dados || {};
+  }
+
+  function injectModalEditarCliente() {
+    if (qs("#modalEditarCliente")) return;
+
+    const modal = document.createElement("section");
+    modal.className = "modal";
+    modal.id = "modalEditarCliente";
+    modal.setAttribute("aria-hidden", "true");
+
+    modal.innerHTML = `
+      <div class="modal__dialog">
+        <header class="modal__header">
+          <div>
+            <h3 class="modal__title">Editar cliente</h3>
+            <p class="modal__subtitle">Atualize os dados do cliente.</p>
+          </div>
+          <button class="iconbtn" type="button" data-modal-close="modalEditarCliente">×</button>
+        </header>
+
+        <form class="modal__body" id="formEditarCliente" action="${API}?route=clientes/atualizar" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="id" />
+
+          <div class="form-grid">
+            <div class="field form-span-2">
+              <label>Nome *</label>
+              <input name="nome" required />
+            </div>
+
+            <div class="field">
+              <label>CPF</label>
+              <input name="cpf" />
+            </div>
+
+            <div class="field">
+              <label>Telefone</label>
+              <input name="telefone" />
+            </div>
+
+            <div class="field form-span-2">
+              <label>Endereço</label>
+              <input name="endereco" />
+            </div>
+
+            <div class="field">
+              <label>Profissão</label>
+              <input name="profissao" />
+            </div>
+
+            <div class="field">
+              <label>Placa do carro</label>
+              <input name="placa_carro" />
+            </div>
+
+            <div class="field form-span-2">
+              <label>Indicação</label>
+              <input name="indicacao" />
+            </div>
+
+            <!-- ✅ NOVO: anexar docs -->
+            <div class="field form-span-2">
+              <label>Anexar novos documentos</label>
+              <input
+                type="file"
+                name="documentos[]"
+                id="editarClienteDocsInput"
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar"
+              />
+              <div class="muted" style="margin-top:6px;font-size:12px;">
+                Você pode anexar mais arquivos aqui. Máx 25MB por arquivo.
+              </div>
+
+              <div id="editarClienteDocsSelected" style="margin-top:10px;"></div>
+            </div>
+
+            <!-- ✅ NOVO: lista docs existentes -->
+            <div class="field form-span-2">
+              <label>Documentos do cliente</label>
+              <div id="editarClienteDocsList" style="margin-top:6px;"></div>
+              <div class="muted" style="margin-top:8px;font-size:12px;">
+                Dica: “Excluir” vai remover o arquivo do sistema (precisa da rota clientes/documentos/excluir).
+              </div>
+            </div>
+
+          </div>
+
+          <footer class="modal__footer modal__footer--end">
+            <button class="btn" type="button" data-modal-close="modalEditarCliente">Cancelar</button>
+            <button class="btn btn--primary" type="submit" id="btnSubmitEditarCliente">Salvar alterações</button>
+          </footer>
+        </form>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // ativa máscaras no modal
+    if (typeof applyMasks === "function") {
+      applyMasks(modal);
+    }
+
+    const form = qs("#formEditarCliente");
+    const btnSubmit = qs("#btnSubmitEditarCliente");
+    const docsInput = qs("#editarClienteDocsInput");
+    const docsSelected = qs("#editarClienteDocsSelected");
+    const docsList = qs("#editarClienteDocsList");
+
+    function renderSelectedFiles() {
+      if (!docsSelected) return;
+      const files = docsInput && docsInput.files ? Array.from(docsInput.files) : [];
+      if (!files.length) {
+        docsSelected.innerHTML = `<div class="muted" style="padding:8px 0;">Nenhum arquivo novo selecionado.</div>`;
+        return;
+      }
+
+      docsSelected.innerHTML = files.slice(0, 20).map((f) => {
+        const name = esc(f.name);
+        const mime = esc(f.type || "arquivo");
+        const size = fmtBytes(f.size);
+        const icon = iconByMime(f.type);
+
+        return `
+          <div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid rgba(0,0,0,.06);">
+            <div style="width:44px;height:44px;display:flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid rgba(0,0,0,.12);">${icon}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</div>
+              <div class="muted" style="font-size:12px;">${mime} ${size ? "• " + esc(size) : ""}</div>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    if (docsInput) {
+      docsInput.addEventListener("change", renderSelectedFiles);
+      renderSelectedFiles();
+    }
+
+    // SUBMIT
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      if (btnSubmit) btnSubmit.disabled = true;
+
+      try {
+        const fd = new FormData(form);
+
+        const res = await fetch(`${API}?route=clientes/atualizar`, {
+          method: "POST",
+          body: fd,
+        });
+
+        const json = await res.json();
+
+        if (!json.ok) {
+          onError(json.mensagem || "Erro ao atualizar cliente");
+          if (btnSubmit) btnSubmit.disabled = false;
+          return;
         }
 
-        const modal = document.getElementById("modalEditarCliente");
-        const form = modal.querySelector("#formEditarCliente");
+        // limpa seleção de novos arquivos
+        if (docsInput) docsInput.value = "";
+        renderSelectedFiles();
 
-        // opcional: feedback rápido
-        const nomeInput = form.querySelector('input[name="nome"]');
-        if (nomeInput) nomeInput.value = "Carregando...";
-
-        try {
-            const res = await fetch(`/KRAx/public/api.php?route=clientes/detalhes&id=${encodeURIComponent(id)}`);
-            const json = await res.json();
-
-            if (!json.ok) {
-                onError(json.mensagem || "Erro ao buscar cliente");
-                return;
-            }
-
-            const c = json.dados;
-
-            form.querySelector('input[name="id"]').value = id;
-            form.querySelector('input[name="nome"]').value = c.nome || "";
-            form.querySelector('input[name="cpf"]').value = c.cpf || "";
-            form.querySelector('input[name="telefone"]').value = c.telefone || "";
-            form.querySelector('input[name="endereco"]').value = c.endereco || "";
-            form.querySelector('input[name="profissao"]').value = c.profissao || "";
-            form.querySelector('input[name="placa_carro"]').value = c.placa_carro || "";
-            form.querySelector('input[name="indicacao"]').value = c.indicacao || "";
-
-            const cpfInput = form.querySelector('input[name="cpf"]');
-            const telInput = form.querySelector('input[name="telefone"]');
-
-            if (cpfInput) cpfInput.dispatchEvent(new Event("input"));
-            if (telInput) telInput.dispatchEvent(new Event("input"));
-
-
-            GestorModal.open("modalEditarCliente");
-        } catch (err) {
-            console.error(err);
-            onError("Erro de rede ao buscar cliente");
+        // atualiza a lista de docs sem fechar (fica mais gostoso)
+        const id = String(form.querySelector('input[name="id"]')?.value || "");
+        if (id) {
+          try {
+            const dados = await fetchClienteDetalhes(id);
+            if (docsList) docsList.innerHTML = buildDocsHtml(dados.documentos || [], id);
+          } catch (_) { }
         }
-    };
 
-    // expõe injetor
-    window.injectModalEditarCliente = injectModalEditarCliente;
+        toast("Cliente atualizado!", "success", 2200);
+
+        // seu padrão atual recarrega a página; mantive, mas sem estourar toast (você depois ajusta o toast.js)
+        GestorModal.close("modalEditarCliente");
+        onSuccess("Cliente atualizado!", { reload: true });
+      } catch (err) {
+        console.error(err);
+        onError("Erro de conexão com o servidor");
+      } finally {
+        if (btnSubmit) btnSubmit.disabled = false;
+      }
+    });
+
+    // DELETE DOC (depende da rota que vamos criar)
+    document.addEventListener("click", async (e) => {
+      const btn = e.target.closest('[data-doc-delete="1"]');
+      if (!btn) return;
+
+      const clienteId = btn.getAttribute("data-cliente-id") || "";
+      const docId = btn.getAttribute("data-doc-id") || "";
+      if (!clienteId || !docId) return;
+
+      const ok = confirm("Excluir este documento? Essa ação não pode ser desfeita.");
+      if (!ok) return;
+
+      btn.disabled = true;
+
+      try {
+        const fd = new FormData();
+        fd.append("cliente_id", clienteId);
+        fd.append("doc_id", docId);
+
+        const res = await fetch(`${API}?route=clientes/documentos/excluir`, {
+          method: "POST",
+          body: fd,
+        });
+
+        const json = await res.json();
+        if (!json.ok) {
+          btn.disabled = false;
+          onError(json.mensagem || "Erro ao excluir documento");
+          return;
+        }
+
+        toast("Documento excluído.", "success", 2200);
+
+        // re-carrega detalhes pra refletir a lista
+        const dados = await fetchClienteDetalhes(clienteId);
+        if (docsList) docsList.innerHTML = buildDocsHtml(dados.documentos || [], clienteId);
+      } catch (err) {
+        console.error(err);
+        btn.disabled = false;
+        onError("Erro de rede ao excluir documento");
+      }
+    });
+  }
+
+  // ✅ FUNÇÃO QUE O INDEX VAI CHAMAR
+  window.openEditarCliente = async function openEditarCliente(clienteId) {
+    const id = String(clienteId || "");
+    if (!id) return;
+
+    // garante que o modal existe
+    if (!document.getElementById("modalEditarCliente")) {
+      injectModalEditarCliente();
+    }
+
+    const modal = document.getElementById("modalEditarCliente");
+    const form = modal.querySelector("#formEditarCliente");
+
+    const docsList = modal.querySelector("#editarClienteDocsList");
+    const docsInput = modal.querySelector("#editarClienteDocsInput");
+    const docsSelected = modal.querySelector("#editarClienteDocsSelected");
+
+    // reset visual
+    if (docsInput) docsInput.value = "";
+    if (docsSelected) docsSelected.innerHTML = `<div class="muted" style="padding:8px 0;">Nenhum arquivo novo selecionado.</div>`;
+    if (docsList) docsList.innerHTML = `<div class="muted" style="padding:8px 0;">Carregando documentos...</div>`;
+
+    // feedback rápido
+    const nomeInput = form.querySelector('input[name="nome"]');
+    if (nomeInput) nomeInput.value = "Carregando...";
+
+    try {
+      const c = await fetchClienteDetalhes(id);
+
+      form.querySelector('input[name="id"]').value = id;
+      form.querySelector('input[name="nome"]').value = c.nome || "";
+      form.querySelector('input[name="cpf"]').value = c.cpf || "";
+      form.querySelector('input[name="telefone"]').value = c.telefone || "";
+      form.querySelector('input[name="endereco"]').value = c.endereco || "";
+      form.querySelector('input[name="profissao"]').value = c.profissao || "";
+      form.querySelector('input[name="placa_carro"]').value = c.placa_carro || "";
+      form.querySelector('input[name="indicacao"]').value = c.indicacao || "";
+
+      const cpfInput = form.querySelector('input[name="cpf"]');
+      const telInput = form.querySelector('input[name="telefone"]');
+      if (cpfInput) cpfInput.dispatchEvent(new Event("input"));
+      if (telInput) telInput.dispatchEvent(new Event("input"));
+
+      // docs
+      if (docsList) docsList.innerHTML = buildDocsHtml(c.documentos || [], id);
+
+      GestorModal.open("modalEditarCliente");
+    } catch (err) {
+      console.error(err);
+      onError("Erro de rede ao buscar cliente");
+    }
+  };
+
+  // expõe injetor
+  window.injectModalEditarCliente = injectModalEditarCliente;
 })();

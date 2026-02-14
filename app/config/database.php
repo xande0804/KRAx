@@ -1,17 +1,15 @@
 <?php
 
+require_once __DIR__ . '/env.php';
+
 class Database
 {
-    private static $host = 'localhost';
-    private static $db   = 'krax';
-    private static $user = 'root';
-    private static $pass = '';
-    private static $charset = 'utf8mb4';
-
-    public static function conectar()
+    public static function conectar(): PDO
     {
         try {
-            $dsn = "mysql:host=" . self::$host . ";dbname=" . self::$db . ";charset=" . self::$charset;
+            $dsn = "mysql:host=" . DB_HOST .
+                   ";dbname=" . DB_NAME .
+                   ";charset=" . DB_CHARSET;
 
             $opcoes = [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -19,8 +17,14 @@ class Database
                 PDO::ATTR_EMULATE_PREPARES   => false,
             ];
 
-            return new PDO($dsn, self::$user, self::$pass, $opcoes);
+            return new PDO($dsn, DB_USER, DB_PASS, $opcoes);
+
         } catch (PDOException $e) {
+
+            if (defined('APP_ENV') && APP_ENV === 'production') {
+                die('Erro ao conectar ao banco.');
+            }
+
             die('Erro na conexão com o banco: ' . $e->getMessage());
         }
     }
