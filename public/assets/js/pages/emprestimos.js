@@ -14,13 +14,6 @@
 
   let currentFilter = "all";
 
-  function badgeHtml(status) {
-    const s = (status || "").toUpperCase();
-    if (s === "QUITADO") return `<span class="badge badge--success">Quitado</span>`;
-    if (s === "ATRASADO") return `<span class="badge badge--danger">Atrasado</span>`;
-    return `<span class="badge badge--info">Ativo</span>`;
-  }
-
   function money(v) {
     if (v == null) return "—";
     const num = Number(v);
@@ -40,6 +33,41 @@
     return `${d}/${m}/${y}`;
   }
 
+  function todayYMD() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function getProximoVencYMD(row) {
+    const raw = String(row?.proximo_vencimento || "").trim();
+    return raw ? raw.slice(0, 10) : "";
+  }
+
+  // ✅ regra real de ATRASO na tela: vencimento < hoje e não quitado
+  function isAtrasado(row) {
+    const status = String(row?.status || "").toUpperCase();
+    if (status === "QUITADO") return false;
+
+    const dv = getProximoVencYMD(row);
+    if (!dv) return false;
+
+    return dv < todayYMD();
+  }
+
+  function badgeHtml(status) {
+    const s = (status || "").toUpperCase();
+    if (s === "QUITADO") return `<span class="badge badge--success">Quitado</span>`;
+    if (s === "ATRASADO") return `<span class="badge badge--danger">Atrasado</span>`;
+    return `<span class="badge badge--info">Ativo</span>`;
+  }
+
+  // ✅ status "de tela" (para badge e filtro)
+  function getStatusTela(row) {
+    const status = String(row?.status || "").toUpperCase();
+    if (status === "QUITADO") return "QUITADO";
+    if (isAtrasado(row)) return "ATRASADO";
+    return "ATIVO";
+  }
+
   function renderList(lista) {
     if (!Array.isArray(lista) || lista.length === 0) {
       listEl.innerHTML = `<div class="muted" style="padding:12px;">Nenhum empréstimo encontrado.</div>`;
@@ -48,11 +76,11 @@
 
     listEl.innerHTML = lista
       .map((row) => {
-        const status = (row.status || "").toUpperCase();
-        const isQuitado = status === "QUITADO";
+        const statusTela = getStatusTela(row);
+        const isQuitado = statusTela === "QUITADO";
 
         const statusData =
-          status === "QUITADO" ? "quitado" : status === "ATRASADO" ? "atrasado" : "ativo";
+          statusTela === "QUITADO" ? "quitado" : statusTela === "ATRASADO" ? "atrasado" : "ativo";
 
         const parcelasTxt = row.parcelas || "—";
 
@@ -60,7 +88,6 @@
         const proxVenc = rawVenc ? formatDateBR(rawVenc) : "";
         const showVenc = proxVenc && proxVenc !== "—";
 
-        // ✅ Só mostra botão de pagamento se NÃO estiver quitado
         const pagamentoBtn = !isQuitado
           ? `
     <button
@@ -69,10 +96,7 @@
       data-modal-open="lancarPagamento"
       data-emprestimo-id="${row.emprestimo_id}"
       data-cliente-nome="${(row.cliente_nome || "").replace(/"/g, "&quot;")}"
-      data-emprestimo-info="${`${money(row.valor_principal)} - ${parcelasTxt} parcelas`.replace(
-        /"/g,
-        "&quot;"
-      )}"
+      data-emprestimo-info="${`${money(row.valor_principal)} - ${parcelasTxt} parcelas`.replace(/"/g, "&quot;")}"
       data-origem="emprestimos"
       data-cliente-id="${row.cliente_id}"
     >💳 Pagamento</button>
@@ -84,7 +108,7 @@
   <div class="list-item__main">
     <div class="list-item__title">
       <strong>${row.cliente_nome ?? "—"}</strong>
-      ${badgeHtml(status)}
+      ${badgeHtml(statusTela)}
     </div>
     <div class="list-item__meta">
       <span>${money(row.valor_principal)}</span>
@@ -111,9 +135,10 @@
 
   function updateCounts(allList) {
     const total = allList.length;
-    const ativos = allList.filter((x) => (x.status || "").toUpperCase() === "ATIVO").length;
-    const quitados = allList.filter((x) => (x.status || "").toUpperCase() === "QUITADO").length;
-    const atrasados = allList.filter((x) => (x.status || "").toUpperCase() === "ATRASADO").length;
+
+    const quitados = allList.filter((x) => getStatusTela(x) === "QUITADO").length;
+    const atrasados = allList.filter((x) => getStatusTela(x) === "ATRASADO").length;
+    const ativos = allList.filter((x) => getStatusTela(x) === "ATIVO").length;
 
     if (pageCountEl) pageCountEl.textContent = `${total} empréstimos cadastrados`;
 
@@ -137,13 +162,27 @@
     return json.dados || [];
   }
 
+  // ✅ filtro no front usando a regra nova
+  function applyFrontFilter(lista, filterKey) {
+    const k = String(filterKey || "all").toLowerCase();
+    if (k === "all") return lista;
+
+    if (k === "quitado") return lista.filter((x) => getStatusTela(x) === "QUITADO");
+    if (k === "atrasado") return lista.filter((x) => getStatusTela(x) === "ATRASADO");
+    if (k === "ativo") return lista.filter((x) => getStatusTela(x) === "ATIVO");
+
+    return lista;
+  }
+
   async function load(filterKey) {
     listEl.innerHTML = `<div class="muted" style="padding:12px;">Carregando...</div>`;
     try {
+      // busca tudo UMA vez e filtra no front (contagens e lista sempre consistentes)
       const all = await fetchList("all");
+
       updateCounts(all);
 
-      const lista = filterKey === "all" ? all : await fetchList(filterKey);
+      const lista = applyFrontFilter(all, filterKey);
       renderList(lista);
     } catch (e) {
       console.error(e);

@@ -68,7 +68,6 @@
       totalComJuros = p * (1 + (j / 100));
     }
 
-    // centavos
     const totalC = Math.round(totalComJuros * 100);
 
     const baseC = Math.floor(totalC / q);
@@ -77,15 +76,43 @@
     const base = baseC / 100;
     const ultima = (baseC + restoC) / 100;
 
-    return {
-      tipoV: t,
-      qtd: q,
-      totalComJuros,
-      totalC,
-      base,
-      ultima,
-      restoC
-    };
+    return { tipoV: t, qtd: q, totalComJuros, totalC, base, ultima, restoC };
+  }
+
+  function isDateYMD(s) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
+  }
+
+  function setRegraUI(modal, tipoV) {
+    const t = String(tipoV || "").trim().toUpperCase();
+
+    const boxDate = modal.querySelector('[data-edit="regra_box_date"]');
+    const boxWeek = modal.querySelector('[data-edit="regra_box_week"]');
+
+    const inputDate = modal.querySelector('[data-edit="regra_date"]');
+    const inputWeek = modal.querySelector('[data-edit="regra_week"]');
+
+    const hint = modal.querySelector('[data-edit="regra_hint"]');
+    const label = modal.querySelector('[data-edit="regra_label"]');
+
+    if (t === "SEMANAL") {
+      if (label) label.textContent = "Regra do vencimento (semanal)";
+      if (hint) hint.textContent = "Informe 1–6 (Segunda a Sábado).";
+      if (boxDate) boxDate.style.display = "none";
+      if (boxWeek) boxWeek.style.display = "";
+      if (inputWeek) {
+        inputWeek.min = "1";
+        inputWeek.max = "6";
+        inputWeek.placeholder = "1 a 6";
+      }
+    } else {
+      // DIARIO ou MENSAL → regra é DATA (primeiro vencimento)
+      const nomeTipo = t || "—";
+      if (label) label.textContent = `Primeiro vencimento (${nomeTipo})`;
+      if (hint) hint.textContent = "Selecione uma data (YYYY-MM-DD).";
+      if (boxWeek) boxWeek.style.display = "none";
+      if (boxDate) boxDate.style.display = "";
+    }
   }
 
   function injectModalEditarEmprestimo() {
@@ -101,7 +128,7 @@
         <header class="modal__header">
           <div>
             <h3 class="modal__title">Editar empréstimo</h3>
-            <p class="modal__subtitle">Ajuste parcelas e juros quando o cliente renegociar.</p>
+            <p class="modal__subtitle">Ajuste parcelas, juros e vencimento quando o cliente renegociar.</p>
           </div>
           <button class="iconbtn" type="button" data-modal-close="modalEditarEmprestimo">×</button>
         </header>
@@ -127,7 +154,7 @@
                 required
               />
               <div class="muted" style="margin-top:6px;">
-                Obs: Parcelas serão recalculadas automaticamente.
+                Obs: Parcelas serão recalculadas automaticamente (quando permitido).
               </div>
             </div>
 
@@ -146,13 +173,50 @@
               </div>
             </div>
 
+            <!-- ✅ NOVO: vencimento seguindo regra do backend -->
+            <div class="field">
+              <label data-edit="regra_label">Primeiro vencimento</label>
+
+              <div data-edit="regra_box_date">
+                <input
+                  data-edit="regra_date"
+                  type="date"
+                  placeholder="YYYY-MM-DD"
+                />
+              </div>
+
+              <div data-edit="regra_box_week" style="display:none;">
+                <input
+                  data-edit="regra_week"
+                  type="number"
+                  min="1"
+                  max="6"
+                  step="1"
+                  placeholder="1 a 6"
+                />
+              </div>
+
+              <!-- name real enviado -->
+              <input type="hidden" name="regra_vencimento" data-edit="regra_vencimento_hidden" value="" />
+
+              <div class="muted" data-edit="regra_hint" style="margin-top:6px;"></div>
+            </div>
+
+            <div class="field">
+              <label>Tipo de vencimento</label>
+              <input readonly data-edit="tipo_vencimento" value="—" />
+              <div class="muted" style="margin-top:6px;">
+                Obs: O tipo do vencimento não muda aqui (apenas a regra).
+              </div>
+            </div>
+
             <div class="field form-span-2">
               <label>Observação (opcional)</label>
               <textarea
                 name="observacao"
                 data-edit="observacao"
                 rows="3"
-                placeholder="Ex.: Renegociação / Quitação antecipada..."
+                placeholder="Ex.: Renegociação / Ajuste de vencimento..."
               ></textarea>
             </div>
 
@@ -213,6 +277,25 @@
       `);
     }
 
+    function syncHiddenRegra() {
+      const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
+
+      const hidden = modal.querySelector('[data-edit="regra_vencimento_hidden"]');
+      const inputDate = modal.querySelector('[data-edit="regra_date"]');
+      const inputWeek = modal.querySelector('[data-edit="regra_week"]');
+
+      let v = "";
+
+      if (tipoV === "SEMANAL") {
+        v = String(inputWeek?.value ?? "").trim();
+      } else {
+        v = String(inputDate?.value ?? "").trim();
+      }
+
+      if (hidden) hidden.value = v;
+      return v;
+    }
+
     const form = modal.querySelector("#formEditarEmprestimo");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -220,6 +303,32 @@
       try {
         const btn = modal.querySelector("#btnSalvarEdicaoEmprestimo");
         if (btn) btn.disabled = true;
+
+        // garante hidden atualizado
+        const regra = syncHiddenRegra();
+        const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
+
+        if (!regra) {
+          if (btn) btn.disabled = false;
+          onError("Informe a regra do vencimento.");
+          return;
+        }
+
+        // valida conforme backend
+        if (tipoV === "SEMANAL") {
+          const dow = parseInt(regra, 10);
+          if (!(Number.isFinite(dow) && dow >= 1 && dow <= 6)) {
+            if (btn) btn.disabled = false;
+            onError("regra_vencimento semanal deve ser 1-6 (Segunda a Sábado).");
+            return;
+          }
+        } else {
+          if (!isDateYMD(regra)) {
+            if (btn) btn.disabled = false;
+            onError("regra_vencimento deve ser uma data no formato YYYY-MM-DD.");
+            return;
+          }
+        }
 
         const fd = new FormData(form);
 
@@ -249,7 +358,7 @@
         }
 
         GestorModal.close("modalEditarEmprestimo");
-        onSuccess("Empréstimo atualizado!");
+        onSuccess(json.mensagem || "Empréstimo atualizado!");
 
         // reabre detalhes atualizado
         const emprestimoId = String(modal.dataset.emprestimoId || fd.get("emprestimo_id") || "").trim();
@@ -277,8 +386,16 @@
     if (qtdInput) qtdInput.addEventListener("input", refreshPreview);
     if (jurosInput) jurosInput.addEventListener("input", refreshPreview);
 
+    // listeners pra regra -> manter hidden sempre certo
+    const regraDate = modal.querySelector('[data-edit="regra_date"]');
+    const regraWeek = modal.querySelector('[data-edit="regra_week"]');
+    if (regraDate) regraDate.addEventListener("input", syncHiddenRegra);
+    if (regraWeek) regraWeek.addEventListener("input", syncHiddenRegra);
+
     modal._setEdit = setEdit;
     modal._refreshPreview = refreshPreview;
+    modal._setRegraUI = (tipoV) => setRegraUI(modal, tipoV);
+    modal._syncHiddenRegra = syncHiddenRegra;
   }
 
   // payload pode vir com dados já prontos, mas o modal também busca do backend se precisar
@@ -296,6 +413,8 @@
 
     const setEdit = modal._setEdit || function () { };
     const refreshPreview = modal._refreshPreview || function () { };
+    const setRegraUIFn = modal._setRegraUI || function () { };
+    const syncHiddenRegra = modal._syncHiddenRegra || function () { };
 
     modal.dataset.emprestimoId = emprestimoId;
     modal.dataset.origem = String(payload?.origem || "emprestimos");
@@ -327,16 +446,42 @@
           modal.dataset.principal = String(emp.valor_principal ?? "");
           modal.dataset.tipoVencimento = String(emp.tipo_vencimento ?? "");
 
-          // se payload não trouxe, preenche
           if (!payload?.clienteNome && cli.nome) setEdit("cliente_nome", cli.nome);
           if (payload?.quantidadeParcelas == null && emp.quantidade_parcelas != null) setEdit("quantidade_parcelas", String(emp.quantidade_parcelas));
           if (payload?.jurosPct == null && emp.porcentagem_juros != null) setEdit("porcentagem_juros", String(emp.porcentagem_juros));
           if (!payload?.clienteId && emp.cliente_id != null) modal.dataset.clienteId = String(emp.cliente_id);
+
+          // ✅ regra atual do vencimento (formato do backend)
+          const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
+          const regraAtual = String(emp.regra_vencimento ?? "").trim();
+
+          // atualiza UI (tipo e qual input mostrar)
+          setEdit("tipo_vencimento", String(modal.dataset.tipoVencimento || "—"));
+          setRegraUIFn(modal.dataset.tipoVencimento);
+
+          // preenche input correto
+          const inputDate = modal.querySelector('[data-edit="regra_date"]');
+          const inputWeek = modal.querySelector('[data-edit="regra_week"]');
+
+          if (tipoV === "SEMANAL") {
+            if (inputWeek) inputWeek.value = regraAtual;
+          } else {
+            // DIARIO/MENSAL: regra é data
+            if (inputDate) inputDate.value = regraAtual;
+          }
+
+          // joga no hidden name="regra_vencimento"
+          syncHiddenRegra();
         }
       } catch (e) {
         console.error(e);
         // segue mesmo assim
       }
+    } else {
+      // já tem tipo pelo payload
+      setEdit("tipo_vencimento", String(modal.dataset.tipoVencimento || "—"));
+      setRegraUIFn(modal.dataset.tipoVencimento);
+      syncHiddenRegra();
     }
 
     refreshPreview();
