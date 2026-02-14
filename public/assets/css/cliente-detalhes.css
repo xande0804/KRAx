@@ -137,3 +137,51 @@
 .modal__dialog--xl{
   max-width: 720px;
 }
+
+/* ===== Avaliação do cliente ao lado das infos ===== */
+
+/* 2 colunas no box de informações */
+#modalDetalhesCliente .client-info{
+  display: grid;
+  grid-template-columns: 1fr 280px; /* infos | avaliação */
+  gap: 14px 18px;
+  align-items: start;
+}
+
+/* Todas as linhas + docs ficam na coluna da esquerda */
+#modalDetalhesCliente .client-info .client-line,
+#modalDetalhesCliente .client-info .hr,
+#modalDetalhesCliente .client-info .section-title-row,
+#modalDetalhesCliente .client-info #docsListWrap,
+#modalDetalhesCliente .client-info .client-actions{
+  grid-column: 1;
+}
+
+/* A avaliação fica “presa” na coluna da direita */
+#modalDetalhesCliente .client-info .client-rating{
+  grid-column: 2;
+  grid-row: 1 / span 6;
+  position: sticky;
+  top: 10px;
+}
+
+/* Deixa a caixinha com cara de card */
+#modalDetalhesCliente .client-info .client-rating > div{
+  border: 1px solid rgba(0,0,0,.08);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fff;
+}
+
+/* Responsivo: no mobile vira 1 coluna */
+@media (max-width: 820px){
+  #modalDetalhesCliente .client-info{
+    grid-template-columns: 1fr;
+  }
+  #modalDetalhesCliente .client-info .client-rating{
+    grid-column: 1;
+    grid-row: auto;
+    position: static;
+  }
+}
+

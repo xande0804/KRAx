@@ -13,12 +13,43 @@
     return s.includes("R$") ? s : (s ? `R$ ${s}` : "—");
   }
 
-  function toNumber(v) {
-    const n = Number(v);
+  // pt-BR: "1.234,56" -> 1234.56
+  function parseMoneyBR(str) {
+    const s0 = String(str ?? "").trim();
+    if (!s0) return 0;
+    let s = s0.replace(/R\$\s?/g, "").replace(/\s+/g, "");
+    s = s.replace(/[^0-9,.\-]/g, "");
+    if (s.includes(",")) s = s.replace(/\./g, "").replace(",", ".");
+    const n = Number(s);
     return Number.isFinite(n) ? n : 0;
   }
 
-  // ✅ trabalhar em centavos (inteiros) pra não sobrar 0,01 por float
+  // ✅ aceita número e string pt-BR
+  function toNumber(v) {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+
+    const s = String(v).trim();
+    if (!s) return 0;
+
+    if (s.includes(",") || s.includes("R$") || /(\d)\.(\d{3})(\D|$)/.test(s)) return parseMoneyBR(s);
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function round2(n) {
+    const x = Number(n);
+    if (!Number.isFinite(x)) return 0;
+    return Math.round(x * 100) / 100;
+  }
+
+  function formatMoneyInputBR(n) {
+    const num = Number(n);
+    if (!Number.isFinite(num)) return "0,00";
+    return num.toFixed(2).replace(".", ",");
+  }
+
+  // centavos
   function toCents(v) {
     const n = toNumber(v);
     return Math.round(n * 100);
@@ -54,25 +85,14 @@
     return { text: "Ativo", cls: "badge--info" };
   }
 
-  // ✅ define quais tipos amortizam (reduzem a dívida principal/total)
-  function tipoAmortiza(tipoRaw) {
-    const t = String(tipoRaw || "").trim().toUpperCase();
-    if (t === "JUROS") return false;
-    if (t === "PARCELA") return true;
-    if (t === "INTEGRAL" || t === "QUITACAO") return true;
-    if (t === "EXTRA") return true;
-    return false;
-  }
-
   function todayISO() {
-    return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return new Date().toISOString().slice(0, 10);
   }
 
   function onlyDate(yyyyMMdd) {
     return String(yyyyMMdd || "").slice(0, 10);
   }
 
-  // comparação segura (YYYY-MM-DD)
   function isBeforeISO(a, b) {
     const aa = onlyDate(a);
     const bb = onlyDate(b);
@@ -80,13 +100,11 @@
     return aa < bb;
   }
 
-  // ✅ ajuda: determina situação real da parcela olhando valor_pago x valor_parcela + vencimento
   function calcSituacaoParcela(p, isQuitado, hojeStr) {
     const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
     const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
     const valorPago = toNumber(p.valor_pago ?? p.valorPago ?? 0);
 
-    // tolerância 1 centavo
     const vparC = toCents(valorParcela);
     const vpC = toCents(valorPago);
 
@@ -99,32 +117,91 @@
     const vencISO = onlyDate(p.data_vencimento ?? p.dataVencimento);
     const vencidaPorData = !isQuitado && vencISO && isBeforeISO(vencISO, hojeStr);
 
-    // ✅ ATRASADA (real): vencida por data E ainda não paga
     const isAtrasadaReal = vencidaPorData && !isPagaReal;
-
-    // ✅ PAGA ATRASADA: paga, mas vencimento já passou (pagou depois do venc.)
     const isPagaAtrasada = isPagaReal && vencidaPorData;
 
     const restanteC = Math.max(0, vparC - vpC);
 
-    return {
-      stp,
-      valorParcela,
-      valorPago,
-      isPagaReal,
-      isParcial,
-      isAtrasadaReal,
-      isPagaAtrasada,
-      vencISO,
-      restanteC
-    };
+    return { stp, valorParcela, valorPago, isPagaReal, isParcial, isAtrasadaReal, isPagaAtrasada, vencISO, restanteC };
   }
 
-  // ========= INJECT DETALHES =========
+  function getNextParcelaAberta(parcelas, isQuitado, hojeStr) {
+    if (!Array.isArray(parcelas) || !parcelas.length) return null;
+    const abertas = parcelas.filter(p => {
+      const s = calcSituacaoParcela(p, isQuitado, hojeStr);
+      return !s.isPagaReal && (s.isParcial || s.restanteC > 0);
+    });
+    if (!abertas.length) return null;
+    abertas.sort((a, b) => Number(a.numero_parcela ?? a.numeroParcela ?? 0) - Number(b.numero_parcela ?? b.numeroParcela ?? 0));
+    return abertas[0];
+  }
+
+  // ✅ mesma regra do modal "lançar pagamento"
+  function calcQuitacaoNova(emp, parcelasArr, pagamentosArr) {
+    const principal = toNumber(emp.valor_principal);
+    const jurosPct = toNumber(emp.porcentagem_juros);
+    const qtdTotal = Math.max(1, toNumber(emp.quantidade_parcelas || (Array.isArray(parcelasArr) ? parcelasArr.length : 1) || 1));
+    const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
+
+    const jurosTotalContrato = principal * (jurosPct / 100);
+    const totalComJuros =
+      tipoV === "MENSAL"
+        ? (principal + (jurosTotalContrato * qtdTotal))
+        : (principal * (1 + jurosPct / 100));
+
+    // DIÁRIO/SEMANAL: total c/juros - apenas parcelas pagas cheias
+    if (tipoV === "DIARIO" || tipoV === "SEMANAL") {
+      let totalParcelasPagasCheias = 0;
+      const arr = Array.isArray(parcelasArr) ? parcelasArr : [];
+
+      for (const p of arr) {
+        const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+        const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+        const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
+
+        const pagaCheia = (st === "PAGA" || st === "QUITADA") || (vpar > 0 && vp >= vpar);
+        if (pagaCheia && vpar > 0) totalParcelasPagasCheias += vpar;
+      }
+
+      return round2(Math.max(0, totalComJuros - totalParcelasPagasCheias));
+    }
+
+    // MENSAL: parcelas abertas + 1 juros (sua regra)
+    let faltanteParcelas = 0;
+    let qtdRestantes = 0;
+    const abertas = Array.isArray(parcelasArr) ? parcelasArr : [];
+
+    for (const p of abertas) {
+      const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+      const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+      const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
+
+      const ehAberta =
+        st === "ABERTA" || st === "PARCIAL" || st === "ATRASADA" || st === "ATRASADO" ||
+        (vpar > 0 && vp < vpar);
+
+      if (!ehAberta) continue;
+
+      const falt = vpar - vp;
+      if (falt > 0) {
+        faltanteParcelas += falt;
+        qtdRestantes++;
+      }
+    }
+
+    if (qtdRestantes <= 0 || faltanteParcelas <= 0) return 0;
+
+    const jurosUnit = jurosTotalContrato;
+    let totalQuit = faltanteParcelas - ((qtdRestantes - 1) * jurosUnit);
+    if (totalQuit < 0) totalQuit = 0;
+
+    return round2(totalQuit);
+  }
+
+  // ========= INJECT =========
   window.injectModalDetalhesEmprestimo = function injectModalDetalhesEmprestimo() {
     if (qs("#modalDetalhesEmprestimo")) return;
 
-    // ✅ garante que o modal de edição exista (se o arquivo separado já estiver carregado)
     if (typeof window.injectModalEditarEmprestimo === "function") {
       window.injectModalEditarEmprestimo();
     }
@@ -145,7 +222,6 @@
         </header>
 
         <div class="modal__body">
-
           <div class="loan-head">
             <div class="loan-head__icon">👤</div>
             <div>
@@ -212,7 +288,6 @@
             <h4 class="modal-section__title">Histórico de pagamentos</h4>
             <div class="pay-history" id="payHistoryList"></div>
           </div>
-
         </div>
       </div>
     `;
@@ -275,6 +350,9 @@
 
       const hojeStr = todayISO();
 
+      const statusAtual = String(emp.status || "").trim().toUpperCase();
+      const isQuitado = statusAtual === "QUITADO";
+
       set("cliente_nome", cli.nome || "—");
       set("cliente_tel", cli.telefone || "—");
 
@@ -288,7 +366,7 @@
       const tipoTxt = tipoV === "DIARIO" ? "Diário" : tipoV === "SEMANAL" ? "Semanal" : "Mensal";
       set("tipo_venc", tipoTxt);
 
-      // ✅ calcular total/parcelas em centavos (inteiro)
+      // total/parcelas em centavos
       let valorPrestacaoC = 0;
       let totalComJurosC = 0;
 
@@ -305,46 +383,33 @@
         valorPrestacaoC = Math.round(totalComJurosC / totalParcelas);
       }
 
-      // ✅ somas em centavos
-      const totalPagoTudoC = pagamentos.reduce((acc, pg) => {
-        const v = toNumber(pg.valor_pago ?? pg.valor ?? 0);
-        return acc + toCents(v);
-      }, 0);
-
-      const totalPagoAmortizaC = pagamentos.reduce((acc, pg) => {
-        const tipoPg = pg.tipo_pagamento || pg.tipo;
-        if (!tipoAmortiza(tipoPg)) return acc;
-        const v = toNumber(pg.valor_pago ?? pg.valor ?? 0);
-        return acc + toCents(v);
-      }, 0);
-
-      // saldo em centavos
-      let saldoC = totalComJurosC - totalPagoAmortizaC;
-      if (saldoC < 0) saldoC = 0;
-
-      const statusAtual = String(emp.status || "").trim().toUpperCase();
-      const isQuitado = statusAtual === "QUITADO";
-
-      // ✅ regra: se está QUITADO, não mostra 0,01 — mostra 0,00
-      if (isQuitado || saldoC <= 1) {
-        saldoC = 0;
-      }
-
+      // ✅ SETA OS KPIs (isso evita ficar "—")
       set("valor", moneyFromCents(principalC));
-
       set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
-
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
       set("total_juros", moneyFromCents(totalComJurosC));
-      set("saldo_hint", `Pago: ${moneyFromCents(totalPagoTudoC)} • Falta: ${moneyFromCents(saldoC)}`);
 
-      // ✅ CONTAGEM DE PARCELAS:
-      let pagas = 0;
+      // ✅ SINCRONIZA "Pago/Falta" COM O MESMO VALOR DE QUITAÇÃO DO MODAL DE PAGAMENTO
+      const quitNova = calcQuitacaoNova(emp, parcelas, pagamentos);
+      let faltaC = toCents(quitNova);
+
+      let pagoC = totalComJurosC - faltaC;
+      if (pagoC < 0) pagoC = 0;
+
       if (isQuitado) {
-        pagas = totalParcelas;
-      } else {
-        pagas = parcelas.filter((p) => calcSituacaoParcela(p, false, hojeStr).isPagaReal).length;
+        faltaC = 0;
+        pagoC = totalComJurosC;
       }
+
+      if (faltaC <= 1) faltaC = 0;
+      if (pagoC <= 1) pagoC = 0;
+
+      set("saldo_hint", `Pago: ${moneyFromCents(pagoC)} • Falta: ${moneyFromCents(faltaC)}`);
+
+      // parcelas pagas
+      let pagas = 0;
+      if (isQuitado) pagas = totalParcelas;
+      else pagas = parcelas.filter((p) => calcSituacaoParcela(p, false, hojeStr).isPagaReal).length;
       set("parcelas", `${pagas} / ${totalParcelas || 0}`);
 
       const st = statusBadge(emp.status);
@@ -361,7 +426,6 @@
       const btnQuit = modal.querySelector("#btnMarkQuitado");
       const btnEdit = modal.querySelector("#btnEditLoan");
 
-      // regra de visibilidade
       if (isQuitado) {
         if (btnPay) btnPay.style.display = "none";
         if (btnQuit) btnQuit.style.display = "none";
@@ -372,11 +436,18 @@
         if (btnEdit) btnEdit.style.display = "";
       }
 
+      const nextAberta = getNextParcelaAberta(parcelas, isQuitado, hojeStr);
+      const nextParcelaId = nextAberta ? String(nextAberta.id ?? nextAberta.parcela_id ?? "") : "";
+      const nextVencISO = nextAberta ? onlyDate(nextAberta.data_vencimento ?? nextAberta.dataVencimento) : "";
+
       if (btnPay) {
         btnPay.dataset.emprestimoId = id;
         btnPay.dataset.clienteNome = cli.nome || "";
         btnPay.dataset.emprestimoInfo = `${moneyFromCents(principalC)} - ${pagas}/${totalParcelas} parcelas`;
         btnPay.dataset.tipoPadrao = "PARCELA";
+
+        btnPay.dataset.parcelaId = nextParcelaId;
+        btnPay.dataset.dataPadrao = nextVencISO || "";
 
         btnPay.dataset.origem = modal.dataset.origem || "emprestimos";
         btnPay.dataset.clienteId = modal.dataset.clienteId || String(emp.cliente_id || "");
@@ -386,7 +457,6 @@
         btnPay.dataset.returnClienteId = btnPay.dataset.clienteId || "";
       }
 
-      // ✅ chama o modal separado (se existir)
       if (btnEdit) {
         btnEdit.onclick = () => {
           if (typeof window.openEditarEmprestimo !== "function") {
@@ -412,7 +482,7 @@
         btnQuit.onclick = async () => {
           if (btnQuit.disabled) return;
 
-          const ok = confirm("Confirmar quitação total deste empréstimo?");
+          const ok = confirm(`Confirmar quitação total deste empréstimo?\nValor: ${money(quitNova)}`);
           if (!ok) return;
 
           btnQuit.disabled = true;
@@ -421,12 +491,18 @@
             const fd = new FormData();
             fd.append("emprestimo_id", id);
             fd.append("tipo_pagamento", "QUITACAO");
-            fd.append("valor_pago", "1");
-            fd.append("observacao", "Quitação (parcelas restantes + 1 juros)");
+            fd.append("valor_pago", formatMoneyInputBR(quitNova));
+
+            const obs = (tipoV === "DIARIO" || tipoV === "SEMANAL")
+              ? "Quitação = total c/juros − apenas parcelas pagas (juros pagos não abatem)"
+              : "Quitação (parcelas restantes + 1 juros)";
+
+            fd.append("observacao", obs);
 
             const r = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
               method: "POST",
               body: fd,
+              headers: { "Accept": "application/json" }
             });
             const j = await r.json();
 
@@ -456,125 +532,98 @@
         };
       }
 
-      // ✅ LISTA DE PRESTAÇÕES (com atraso em vermelho / paga atrasada em verde água)
+      // lista de prestações
       if (installments) {
         if (!parcelas.length) {
           installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma prestação encontrada.</div>`;
         } else {
-          installments.innerHTML = parcelas
-            .map((p) => {
-              const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
-              const vencISO = onlyDate(p.data_vencimento ?? p.dataVencimento);
-              const vencBR = formatDateBR(vencISO);
+          installments.innerHTML = parcelas.map((p) => {
+            const num = p.numero_parcela ?? p.numeroParcela ?? p.num ?? "—";
+            const vencISO = onlyDate(p.data_vencimento ?? p.dataVencimento);
+            const vencBR = formatDateBR(vencISO);
 
-              const s = calcSituacaoParcela(p, isQuitado, hojeStr);
+            const s = calcSituacaoParcela(p, isQuitado, hojeStr);
 
-              // ✅ valor exibido:
-              let valTxt = "—";
-              if (s.isParcial) {
-                valTxt = moneyFromCents(s.restanteC);
-              } else {
-                const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
-                valTxt = valorParcela > 0 ? money(valorParcela) : moneyFromCents(valorPrestacaoC);
-              }
+            let valTxt = "—";
+            if (s.isParcial) {
+              valTxt = moneyFromCents(s.restanteC);
+            } else {
+              const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+              valTxt = valorParcela > 0 ? money(valorParcela) : moneyFromCents(valorPrestacaoC);
+            }
 
-              // bolinha de status
-              const dotCls = s.isPagaReal
-                ? (s.isPagaAtrasada ? "inst-dot--ok" : "inst-dot--ok")
-                : s.isParcial
-                  ? "inst-dot--warn"
-                  : s.isAtrasadaReal
-                    ? "inst-dot--danger"
-                    : "";
+            const dotCls = s.isPagaReal ? "inst-dot--ok" : s.isParcial ? "inst-dot--warn" : s.isAtrasadaReal ? "inst-dot--danger" : "";
 
-              // ✅ badge de status (o que você pediu)
-              let badge = "";
-              if (isQuitado) {
-                badge = `<span class="badge badge--success" style="margin-left:10px;">Paga</span>`;
-              } else if (s.isAtrasadaReal) {
-                badge = `<span class="badge badge--danger" style="margin-left:10px;">Atrasada</span>`;
-              } else if (s.isPagaReal && s.isPagaAtrasada) {
-                // verde água / mais escuro (inline pra não depender de CSS)
-                badge = `<span class="badge badge--success" style="margin-left:10px; background:#0f766e; border-color:#0f766e; color:#fff;">Paga (atrasada)</span>`;
-              } else if (s.isPagaReal) {
-                badge = `<span class="badge badge--success" style="margin-left:10px;">Paga</span>`;
-              } else if (s.isParcial) {
-                badge = `<span class="badge badge--info" style="margin-left:10px;">Parcial</span>`;
-              }
+            let badge = "";
+            if (isQuitado) badge = `<span class="badge badge--success" style="margin-left:10px;">Paga</span>`;
+            else if (s.isAtrasadaReal) badge = `<span class="badge badge--danger" style="margin-left:10px;">Atrasada</span>`;
+            else if (s.isPagaReal && s.isPagaAtrasada) badge = `<span class="badge badge--success" style="margin-left:10px; background:#0f766e; border-color:#0f766e; color:#fff;">Paga (atrasada)</span>`;
+            else if (s.isPagaReal) badge = `<span class="badge badge--success" style="margin-left:10px;">Paga</span>`;
+            else if (s.isParcial) badge = `<span class="badge badge--info" style="margin-left:10px;">Parcial</span>`;
 
-              // linha extra no parcial
-              const subLinha = (!isQuitado && s.isParcial)
-                ? `<span class="muted" style="margin-left:10px;">Restante após adiantamento</span>`
-                : ``;
+            const subLinha = (!isQuitado && s.isParcial) ? `<span class="muted" style="margin-left:10px;">Restante após adiantamento</span>` : ``;
 
-              // ✅ se atrasada, pinta a linha (leve) e data em vermelho
-              const rowStyle = s.isAtrasadaReal
-                ? `style="border-left:4px solid #ef4444; padding-left:10px;"`
-                : ``;
+            const rowStyle = s.isAtrasadaReal ? `style="border-left:4px solid #ef4444; padding-left:10px;"` : ``;
+            const vencStyle = s.isAtrasadaReal ? `style="color:#ef4444; font-weight:600;"` : ``;
 
-              const vencStyle = s.isAtrasadaReal
-                ? `style="color:#ef4444; font-weight:600;"`
-                : ``;
-
-              return `
-                <div class="installment-row" ${rowStyle}>
-                  <div class="inst-left">
-                    <span class="inst-dot ${dotCls}"></span>
-                    <span class="inst-title">Prestação ${esc(num)}</span>
-                    ${badge}
-                    ${subLinha}
-                  </div>
-
-                  <div class="inst-right">
-                    <span ${vencStyle}>${esc(vencBR)}</span>
-                    <span class="inst-value">${esc(valTxt)}</span>
-                  </div>
+            return `
+              <div class="installment-row" ${rowStyle}>
+                <div class="inst-left">
+                  <span class="inst-dot ${dotCls}"></span>
+                  <span class="inst-title">Prestação ${esc(num)}</span>
+                  ${badge}
+                  ${subLinha}
                 </div>
-              `;
-            })
-            .join("");
+                <div class="inst-right">
+                  <span ${vencStyle}>${esc(vencBR)}</span>
+                  <span class="inst-value">${esc(valTxt)}</span>
+                </div>
+              </div>
+            `;
+          }).join("");
         }
       }
 
+      // histórico pagamentos
       if (payHist) {
         if (!pagamentos.length) {
           payHist.innerHTML = `<div class="muted" style="padding:10px;">Nenhum pagamento registrado.</div>`;
         } else {
-          payHist.innerHTML = pagamentos
-            .map((pg) => {
-              const tipoRaw = String(pg.tipo_pagamento || pg.tipo || "Pagamento").trim().toUpperCase();
+          payHist.innerHTML = pagamentos.map((pg) => {
+            const tipoRaw = String(pg.tipo_pagamento || pg.tipo || "Pagamento").trim().toUpperCase();
 
-              let title =
-                tipoRaw === "PARCELA" ? "Prestação" :
-                  tipoRaw === "JUROS" ? "Juros" :
-                    tipoRaw === "INTEGRAL" ? "Pagamento integral" :
-                      tipoRaw === "EXTRA" ? "Crédito/extra" :
-                        tipoRaw;
+            let title =
+              tipoRaw === "PARCELA" ? "Prestação" :
+                tipoRaw === "JUROS" ? "Juros" :
+                  tipoRaw === "INTEGRAL" ? "Pagamento integral" :
+                    tipoRaw === "EXTRA" ? "Crédito/extra" :
+                      tipoRaw;
 
-              let sub = String(pg.observacao || "").trim();
+            let sub = String(pg.observacao || "").trim();
 
-              if (tipoRaw === "QUITACAO") {
-                title = "PAGAMENTO";
-                sub = "Quitação (parcelas restantes + 1 juros)";
-              }
+            if (tipoRaw === "QUITACAO") {
+              title = "PAGAMENTO";
+              sub = (tipoV === "DIARIO" || tipoV === "SEMANAL")
+                ? "Quitação = total c/juros − apenas parcelas pagas (juros pagos não abatem)"
+                : "Quitação (parcelas restantes + 1 juros)";
+            }
 
-              const data = formatDateBR(pg.data_pagamento || pg.data);
-              const val = money(pg.valor_pago || pg.valor);
+            const data = formatDateBR(pg.data_pagamento || pg.data);
+            const val = money(pg.valor_pago || pg.valor);
 
-              return `
-                <div class="pay-row">
-                  <div class="pay-left">
-                    <div class="pay-title">${esc(title)}</div>
-                    ${sub ? `<div class="pay-sub">${esc(sub)}</div>` : ``}
-                  </div>
-                  <div class="pay-right">
-                    <span>${esc(data)}</span>
-                    <span class="pay-value">${esc(val)}</span>
-                  </div>
+            return `
+              <div class="pay-row">
+                <div class="pay-left">
+                  <div class="pay-title">${esc(title)}</div>
+                  ${sub ? `<div class="pay-sub">${esc(sub)}</div>` : ``}
                 </div>
-              `;
-            })
-            .join("");
+                <div class="pay-right">
+                  <span>${esc(data)}</span>
+                  <span class="pay-value">${esc(val)}</span>
+                </div>
+              </div>
+            `;
+          }).join("");
         }
       }
 

@@ -38,6 +38,31 @@
     return `${d}/${m}/${y}`;
   }
 
+  function onlyDate(x) {
+    return String(x || "").slice(0, 10);
+  }
+
+  function parseISODate(x) {
+    const s = onlyDate(x);
+    if (!s) return null;
+    const [y, m, d] = s.split("-");
+    if (!y || !m || !d) return null;
+    return new Date(Number(y), Number(m) - 1, Number(d));
+  }
+
+  function daysDiff(aISO, bISO) {
+    // b - a (em dias)
+    const a = parseISODate(aISO);
+    const b = parseISODate(bISO);
+    if (!a || !b) return 0;
+    const ms = b.getTime() - a.getTime();
+    return Math.floor(ms / (1000 * 60 * 60 * 24));
+  }
+
+  function todayISO() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
   function formatBytes(bytes) {
     const b = Number(bytes) || 0;
     if (b <= 0) return "—";
@@ -118,6 +143,172 @@
     `;
   }
 
+  // =============================
+  // ✅ AVALIAÇÃO DO CLIENTE (1–5)
+  // =============================
+  function starsHTML(n) {
+  const s = Math.max(1, Math.min(5, Number(n) || 1));
+  const full = "★".repeat(s);
+  const empty = "☆".repeat(5 - s);
+  return `<span style="color:#f59e0b;">${full}${empty}</span>`;
+}
+
+
+  function ratingLabel(stars) {
+    const s = Number(stars) || 1;
+    if (s >= 5) return "Excelente pagador";
+    if (s === 4) return "Bom pagador";
+    if (s === 3) return "Regular";
+    if (s === 2) return "Risco alto";
+    return "Inadimplente";
+  }
+
+  function starsFromScore(score) {
+    const x = Number(score) || 0;
+    if (x >= 90) return 5;
+    if (x >= 75) return 4;
+    if (x >= 55) return 3;
+    if (x >= 35) return 2;
+    return 1;
+  }
+
+  function computeScore(metrics) {
+    const total = Math.max(1, metrics.totalParcelas || 1);
+
+    const fracAtrasoHoje = (metrics.emAtrasoHoje || 0) / total;
+    const fracPagasAtrasadas = (metrics.pagasAtrasadas || 0) / total;
+    const mediaAtraso = Math.max(0, metrics.mediaDiasAtraso || 0);
+    const diasSemPagar = Math.max(0, metrics.diasSemPagar || 0);
+
+    let score = 100;
+    score -= 60 * fracAtrasoHoje;
+    score -= 25 * fracPagasAtrasadas;
+    score -= Math.min(20, mediaAtraso);
+    score -= (diasSemPagar > 30 ? 15 : 0);
+
+    score = Math.max(0, Math.min(100, score));
+    return Math.round(score);
+  }
+
+  function pickMaxISO(a, b) {
+    const aa = onlyDate(a);
+    const bb = onlyDate(b);
+    if (!aa) return bb;
+    if (!bb) return aa;
+    return aa > bb ? aa : bb;
+  }
+
+  function calcClienteMetricsFromEmprestimos(detailsArr) {
+    const hoje = todayISO();
+
+    let totalParcelas = 0;
+    let pagasEmDia = 0;
+    let pagasAtrasadas = 0;
+    let emAtrasoHoje = 0;
+
+    let somaDiasAtraso = 0;
+    let qtdAtrasosPagos = 0;
+
+    let lastPayISO = ""; // última data de pagamento encontrada
+
+    for (const det of (detailsArr || [])) {
+      const dados = det?.dados || det || {};
+      const parcelas = Array.isArray(dados.parcelas) ? dados.parcelas : [];
+      const pagamentos = Array.isArray(dados.pagamentos) ? dados.pagamentos : [];
+
+      // última data no histórico de pagamentos
+      for (const pg of pagamentos) {
+        const d = onlyDate(pg.data_pagamento || pg.data || "");
+        lastPayISO = pickMaxISO(lastPayISO, d);
+      }
+
+      for (const p of parcelas) {
+        const vpar = Number(p.valor_parcela ?? 0) || 0;
+        if (vpar <= 0) continue;
+
+        totalParcelas++;
+
+        const venc = onlyDate(p.data_vencimento ?? p.dataVencimento ?? "");
+        const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+        const vp = Number(p.valor_pago ?? p.valorPago ?? 0) || 0;
+
+        const paga = (st === "PAGA" || st === "QUITADA" || vp + 0.00001 >= vpar);
+
+        // data real de pagamento da parcela (preferência: pago_em)
+        let pagoEm = onlyDate(p.pago_em || p.pagoEm || "");
+        if (!pagoEm) {
+          // fallback: procura no histórico o último pagamento desta parcela
+          const pid = Number(p.id ?? p.parcela_id ?? 0) || 0;
+          if (pid) {
+            for (const pg of pagamentos) {
+              const pgPid = Number(pg.parcela_id ?? pg.parcelaId ?? 0) || 0;
+              const d = onlyDate(pg.data_pagamento || pg.data || "");
+              if (pgPid === pid && d) pagoEm = pickMaxISO(pagoEm, d);
+            }
+          }
+        }
+
+        if (paga) {
+          if (venc && pagoEm) {
+            if (pagoEm <= venc) {
+              pagasEmDia++;
+            } else {
+              pagasAtrasadas++;
+              const atrasoDias = daysDiff(venc, pagoEm);
+              if (atrasoDias > 0) {
+                somaDiasAtraso += atrasoDias;
+                qtdAtrasosPagos++;
+              }
+            }
+          } else {
+            // se não tiver datas, conta como paga em dia (neutro)
+            pagasEmDia++;
+          }
+        } else {
+          // não paga -> se vencida, está em atraso hoje
+          if (venc && venc < hoje) emAtrasoHoje++;
+        }
+      }
+    }
+
+    const mediaDiasAtraso = qtdAtrasosPagos > 0 ? (somaDiasAtraso / qtdAtrasosPagos) : 0;
+    const diasSemPagar = lastPayISO ? daysDiff(lastPayISO, hoje) : 999;
+
+    return {
+      totalParcelas,
+      pagasEmDia,
+      pagasAtrasadas,
+      emAtrasoHoje,
+      mediaDiasAtraso: Math.round(mediaDiasAtraso * 10) / 10,
+      diasSemPagar,
+      lastPayISO
+    };
+  }
+
+  function renderRatingBlock(metrics) {
+  const score = computeScore(metrics);
+  const stars = starsFromScore(score);
+
+  return `
+    <div style="padding:10px 12px; border:1px solid rgba(0,0,0,.08); border-radius:14px; background:#fff;">
+      
+      <div style="font-size:18px; letter-spacing:2px;">
+        ${starsHTML(stars)}
+      </div>
+
+      <div style="font-weight:700; margin-top:4px;">
+        ${esc(ratingLabel(stars))}
+      </div>
+
+      <div class="muted" style="font-size:12px; margin-top:2px;">
+        Score: ${esc(String(score))}/100
+      </div>
+
+    </div>
+  `;
+}
+
+
   // ========= INJECT MODAL =========
   window.injectModalDetalhesCliente = function injectModalDetalhesCliente() {
     if (qs("#modalDetalhesCliente")) return;
@@ -136,6 +327,9 @@
               <div>
                 <h3 class="client-name" data-fill="nome">Cliente</h3>
                 <p class="client-sub">Dados completos do cliente</p>
+
+                <!-- ✅ NOVO: Avaliação -->
+                
               </div>
             </div>
             <button class="iconbtn" type="button" data-modal-close="modalDetalhesCliente">×</button>
@@ -146,6 +340,9 @@
           <div class="client-details">
 
             <div class="client-info">
+            <div id="clientRatingWrap" style="margin-top:6px;">
+                  <div class="muted" style="font-size:12px;">Carregando avaliação...</div>
+                </div>
               <div class="client-line"><span class="icon-bullet">📞</span> <span data-fill="telefone">—</span></div>
               <div class="client-line"><span class="icon-bullet">🪪</span> CPF <strong data-fill="cpf">—</strong></div>
               <div class="client-line"><span class="icon-bullet">📍</span> <span data-fill="endereco">—</span></div>
@@ -263,6 +460,10 @@
 
     modal.dataset.clienteId = id;
 
+    // rating UI
+    const ratingWrap = modal.querySelector("#clientRatingWrap");
+    if (ratingWrap) ratingWrap.innerHTML = `<div class="muted" style="font-size:12px;">Carregando avaliação...</div>`;
+
     // prepara UI empréstimos
     const activeBox = modal.querySelector("#loanActiveBox");
     const activeEmpty = modal.querySelector("#loanActiveEmpty");
@@ -339,6 +540,40 @@
       // histórico = tudo que NÃO for o ativo principal
       const historico = lista.filter((x) => getEmpId(x) !== ativoId);
 
+      // ✅ Avaliação: busca detalhes de todos empréstimos (cap 10 por segurança)
+      const idsEmp = Array.from(new Set(lista.map(getEmpId).filter(Boolean))).slice(0, 10);
+
+      let detailsArr = [];
+      if (idsEmp.length) {
+        const reqs = idsEmp.map((eid) =>
+          fetch(`/KRAx/public/api.php?route=emprestimos/detalhes&id=${encodeURIComponent(eid)}`)
+            .then(r => r.json())
+            .catch(() => null)
+        );
+
+        const results = await Promise.all(reqs);
+        detailsArr = results.filter(x => x && x.ok).map(x => x.dados || x);
+      }
+
+      const metrics = calcClienteMetricsFromEmprestimos(detailsArr);
+
+      if (ratingWrap) {
+        // se não tiver nenhum empréstimo/parcela, nota neutra 3★
+        if (!metrics.totalParcelas || metrics.totalParcelas <= 0) {
+          ratingWrap.innerHTML = `
+            <div style="display:flex; align-items:center; gap:10px; margin-top:8px;">
+              <div style="padding:8px 10px; border:1px solid rgba(0,0,0,.08); border-radius:12px; background:#fff;">
+                ${starsHTML(3)}
+                <div style="font-weight:800; margin-top:2px;">3★ • Sem histórico suficiente</div>
+                <div class="muted" style="font-size:12px; margin-top:2px;">Cadastre pagamentos para avaliar melhor</div>
+              </div>
+            </div>
+          `;
+        } else {
+          ratingWrap.innerHTML = renderRatingBlock(metrics);
+        }
+      }
+
       // ====== Empréstimo ativo ======
       if (ativo && activeBox) {
         const setActive = (key, value) => {
@@ -357,7 +592,6 @@
         const pv = getProxVenc(ativo);
         setActive("venc", pv ? formatDateBR(pv) : "—");
 
-        // ✅ Gerenciar com contexto (origem + clienteId)
         const btnGer = modal.querySelector("#btnGerenciarEmprestimoAtivo");
         if (btnGer) {
           btnGer.onclick = () => {
@@ -369,11 +603,10 @@
           };
         }
 
-        // Botão "Lançar pagamento"
         const btnPay = modal.querySelector("#btnPagamentoEmprestimoAtivo");
         if (btnPay) {
           btnPay.dataset.origem = "cliente";
-          btnPay.dataset.clienteId = id; // id do cliente
+          btnPay.dataset.clienteId = id;
           btnPay.dataset.emprestimoId = empId;
           btnPay.dataset.clienteNome = c.nome || "";
           btnPay.dataset.emprestimoInfo = `${money(getValor(ativo))} - ${parcelasTxt} parcelas`;

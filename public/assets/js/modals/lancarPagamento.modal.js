@@ -14,11 +14,6 @@
     return s.includes("R$") ? s : (s ? `R$ ${s}` : "—");
   }
 
-  function toNumber(v) {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 0;
-  }
-
   function round2(n) {
     const x = Number(n);
     if (!Number.isFinite(x)) return 0;
@@ -34,6 +29,22 @@
     if (s.includes(",")) {
       s = s.replace(/\./g, "").replace(",", ".");
     }
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // ✅ CORRIGIDO: entende número vindo como string pt-BR
+  function toNumber(v) {
+    if (v === null || v === undefined) return 0;
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+
+    const s = String(v).trim();
+    if (!s) return 0;
+
+    if (s.includes(",") || s.includes("R$") || /(\d)\.(\d{3})(\D|$)/.test(s)) {
+      return parseMoneyBR(s);
+    }
+
     const n = Number(s);
     return Number.isFinite(n) ? n : 0;
   }
@@ -66,7 +77,7 @@
     }
 
     const totalPago = Array.isArray(pagamentos)
-      ? pagamentos.reduce((acc, pg) => acc + toNumber(pg.valor_pago || pg.valor), 0)
+      ? pagamentos.reduce((acc, pg) => acc + toNumber(pg.valor_pago ?? pg.valor ?? 0), 0)
       : 0;
 
     const saldoQuitacao = Math.max(0, totalComJuros - totalPago);
@@ -74,68 +85,78 @@
     return { principal, jurosPct, qtd, tipoV, prestacao, totalComJuros, jurosPrestacao, totalPago, saldoQuitacao };
   }
 
-  // ✅ NOVO: calcula sugestão de QUITAÇÃO pela regra (parcelas restantes + 1 juros)
+  // ✅ NOVO: quitação correta
+  // - DIÁRIO/SEMANAL: total c/juros - SOMENTE parcelas totalmente pagas (ignora juros pagos)
+  // - MENSAL: mantém sua regra atual (parcelas restantes + 1 juros)
   function calcQuitacaoNova(emp, parcelasArr, pagamentosArr) {
-  const principal = toNumber(emp.valor_principal);
-  const jurosPct = toNumber(emp.porcentagem_juros);
-  const qtdTotal = Math.max(1, Number(emp.quantidade_parcelas || parcelasArr.length || 1) || 1);
-  const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
+    const principal = toNumber(emp.valor_principal);
+    const jurosPct = toNumber(emp.porcentagem_juros);
+    const qtdTotal = Math.max(1, toNumber(emp.quantidade_parcelas || parcelasArr.length || 1));
+    const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
 
-  // total pago (vem do histórico de pagamentos)
-  const totalPago = Array.isArray(pagamentosArr)
-    ? pagamentosArr.reduce((acc, pg) => acc + toNumber(pg.valor_pago || pg.valor), 0)
-    : 0;
+    // total com juros do contrato
+    const jurosTotalContrato = principal * (jurosPct / 100);
+    const totalComJuros =
+      tipoV === "MENSAL"
+        ? (principal + (jurosTotalContrato * qtdTotal))
+        : (principal * (1 + jurosPct / 100));
 
-  const jurosTotalContrato = principal * (jurosPct / 100);
+    // ✅ DIÁRIO / SEMANAL: subtrai APENAS prestações pagas 100% (pela tabela de parcelas)
+    if (tipoV === "DIARIO" || tipoV === "SEMANAL") {
+      let totalParcelasPagasCheias = 0;
 
-  // total com juros do contrato
-  const totalComJuros =
-    tipoV === "MENSAL"
-      ? (principal + (jurosTotalContrato * qtdTotal))
-      : (principal * (1 + jurosPct / 100));
+      const arr = Array.isArray(parcelasArr) ? parcelasArr : [];
+      for (const p of arr) {
+        const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+        const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+        const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
 
-  // ✅ NOVA REGRA:
-  // DIÁRIO e SEMANAL → quitação = saldo atual (total com juros - já pago)
-  if (tipoV === "DIARIO" || tipoV === "SEMANAL") {
-    const saldo = Math.max(0, totalComJuros - totalPago);
-    return round2(saldo);
-  }
+        // considera "paga cheia" se status indica OU se valor_pago >= valor_parcela
+        const pagaCheia = (st === "PAGA" || st === "QUITADA") || (vpar > 0 && vp >= vpar);
 
-  // ✅ MENSAL → parcelas restantes + 1 juros (regra que você definiu)
-  let faltanteParcelas = 0;
-  let qtdRestantes = 0;
+        if (pagaCheia && vpar > 0) {
+          // subtrai o valor da parcela (não o que foi pago em juros)
+          totalParcelasPagasCheias += vpar;
+        }
+      }
 
-  const abertas = Array.isArray(parcelasArr) ? parcelasArr : [];
-
-  for (const p of abertas) {
-    const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
-    const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
-    const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
-
-    const ehAberta =
-      st === "ABERTA" || st === "PARCIAL" || st === "ATRASADA" || st === "ATRASADO" ||
-      (vpar > 0 && vp < vpar);
-
-    if (!ehAberta) continue;
-
-    const falt = vpar - vp;
-    if (falt > 0) {
-      faltanteParcelas += falt;
-      qtdRestantes++;
+      const quit = Math.max(0, totalComJuros - totalParcelasPagasCheias);
+      return round2(quit);
     }
+
+    // ✅ MENSAL: mantém sua regra (parcelas restantes + 1 juros)
+    let faltanteParcelas = 0;
+    let qtdRestantes = 0;
+
+    const abertas = Array.isArray(parcelasArr) ? parcelasArr : [];
+
+    for (const p of abertas) {
+      const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
+      const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+      const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
+
+      const ehAberta =
+        st === "ABERTA" || st === "PARCIAL" || st === "ATRASADA" || st === "ATRASADO" ||
+        (vpar > 0 && vp < vpar);
+
+      if (!ehAberta) continue;
+
+      const falt = vpar - vp;
+      if (falt > 0) {
+        faltanteParcelas += falt;
+        qtdRestantes++;
+      }
+    }
+
+    if (qtdRestantes <= 0 || faltanteParcelas <= 0) return 0;
+
+    const jurosUnit = jurosTotalContrato;
+
+    let totalQuit = faltanteParcelas - ((qtdRestantes - 1) * jurosUnit);
+    if (totalQuit < 0) totalQuit = 0;
+
+    return round2(totalQuit);
   }
-
-  if (qtdRestantes <= 0 || faltanteParcelas <= 0) return 0;
-
-  const jurosUnit = jurosTotalContrato; // mensal: juros por prestação (fixo)
-
-  // Quitação = saldoParcelasAbertas - (qtdRestantes - 1) * jurosUnit
-  let totalQuit = faltanteParcelas - ((qtdRestantes - 1) * jurosUnit);
-  if (totalQuit < 0) totalQuit = 0;
-
-  return round2(totalQuit);
-}
-
 
   function closeAnyOpenModal() {
     document.querySelectorAll(".modal").forEach((m) => {
@@ -308,7 +329,6 @@
               parcelaHidden.value = modal.dataset.defaultParcelaId;
             }
           } else {
-            // mantém vazio (seu backend já trata tipo != PARCELA)
             parcelaHidden.value = "";
           }
         }
@@ -336,15 +356,11 @@
         }
 
         GestorModal.close("modalLancarPagamento");
+        onSuccess("Pagamento lançado!");
 
-        // ✅ Toast sem reload automático
-        onSuccess("Pagamento lançado!", { reload: false, delay: 0 });
-
-        // ✅ NÃO reabre detalhes.
-        // Só atualiza a lista do fundo (se existir), sem piscar.
-        if (typeof window.refreshEmprestimosList === "function") window.refreshEmprestimosList();
-        if (typeof window.refreshClientesList === "function") window.refreshClientesList();
-
+        setTimeout(() => {
+          afterSuccessReturnFlow();
+        }, 120);
 
       } catch (err) {
         console.error(err);
@@ -393,7 +409,6 @@
     const dataBase = openEl.dataset.dataPadrao || today;
     setPay("data_pagamento", dataBase);
 
-    // guarda data base (pra fallback)
     modal.dataset.dataBasePagamento = dataBase;
 
     setPay("emprestimo_info", "Carregando...");
@@ -433,15 +448,19 @@
 
         if (cli.nome) setPay("cliente_nome", cli.nome);
 
-        const qtdTotal = Math.max(1, Number(emp.quantidade_parcelas || parcelasArr.length || 1) || 1);
+        const qtdTotal = Math.max(1, toNumber(emp.quantidade_parcelas || parcelasArr.length || 1));
 
         const pagas = parcelasArr.filter((p) => {
           const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
-          const valorPago = Number(p.valor_pago ?? 0);
-          return st === "PAGA" || st === "QUITADA" || valorPago > 0;
+          const valorPago = toNumber(p.valor_pago ?? p.valorPago ?? 0);
+          const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
+          return st === "PAGA" || st === "QUITADA" || (valorParcela > 0 && valorPago >= valorParcela);
         }).length;
 
         const c = calcValoresEmprestimo(emp, pagamentos);
+
+        // ✅ guarda tipo de vencimento para o hint da quitação
+        modal.dataset.tipoV = String(c.tipoV || "").toUpperCase();
 
         const semJuros = money(emp.valor_principal);
         const comJuros = money(c.totalComJuros);
@@ -454,12 +473,11 @@
 
         setPay("emprestimo_info", infoCompleto);
 
-        // valores teóricos
         modal.dataset.prestacao = String(c.prestacao);
         modal.dataset.jurosPrestacao = String(c.jurosPrestacao);
         modal.dataset.saldoQuitacao = String(c.saldoQuitacao);
 
-        // sugestão de quitação
+        // ✅ sugestão de quitação correta
         const quitNova = calcQuitacaoNova(emp, parcelasArr, pagamentos);
         modal.dataset.quitacaoNova = String(quitNova);
 
@@ -471,7 +489,7 @@
 
         function isParcelaAberta(p) {
           const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
-          const vp = toNumber(p.valor_pago ?? 0);
+          const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
           const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
           if (st === "ABERTA" || st === "PARCIAL" || st === "ATRASADA" || st === "ATRASADO") return true;
           if (vpar > 0 && vp < vpar) return true;
@@ -488,7 +506,7 @@
         function parcelaRestante(p) {
           if (!p) return 0;
           const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
-          const vp = toNumber(p.valor_pago ?? 0);
+          const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
           const falt = vpar - vp;
           return falt > 0 ? falt : 0;
         }
@@ -499,7 +517,6 @@
           return dv ? dv.slice(0, 10) : "";
         }
 
-        // ✅ escolhe a "parcela alvo" para sincronizar a data (serve pra TODOS os tipos)
         function getParcelaAlvoParaData() {
           const pidPreferida = String(modal.dataset.defaultParcelaId || "").trim();
           if (pidPreferida) {
@@ -516,7 +533,6 @@
             dataPagamentoInput.value = dv;
             return;
           }
-          // fallback
           dataPagamentoInput.value =
             String(modal.dataset.dataBasePagamento || "").trim() ||
             new Date().toISOString().slice(0, 10);
@@ -528,6 +544,7 @@
           const juros = toNumber(modal.dataset.jurosPrestacao);
           const saldo = toNumber(modal.dataset.saldoQuitacao);
           const quitNovaNum = toNumber(modal.dataset.quitacaoNova);
+          const tipoV = String(modal.dataset.tipoV || "").toUpperCase();
 
           if (valorInput) {
             valorInput.required = true;
@@ -550,7 +567,6 @@
             }
           }
 
-          // ✅ parcela alvo para data (vale para todos os tipos)
           const parcelaAlvoData = getParcelaAlvoParaData();
 
           if (t === "PARCELA") {
@@ -566,22 +582,26 @@
             setPay("valor_pago", formatMoneyInputBR(sugestao));
             setHint(`Prestação sugerida: ${money(sugestao)}${alvo ? ` (parcela ${alvo.numero_parcela ?? alvo.numeroParcela ?? "?"})` : ""}`);
 
-            // ✅ data = vencimento da parcela alvo (a mesma do cálculo)
             syncDataPagamentoComVencimento(alvo);
 
           } else if (t === "JUROS") {
             setPay("valor_pago", formatMoneyInputBR(juros));
             setHint(`Juros desta prestação: ${money(juros)}`);
 
-            // ✅ data = vencimento da parcela alvo
             syncDataPagamentoComVencimento(parcelaAlvoData);
 
           } else if (t === "QUITACAO") {
             setPay("valor_pago", formatMoneyInputBR(quitNovaNum));
-            setHint(`Quitação (parcelas restantes + 1 juros)`);
+
+            // ✅ Hint correto por tipo
+            if (tipoV === "DIARIO" || tipoV === "SEMANAL") {
+              setHint(`Quitação = Total C/Juros.`);
+            } else {
+              setHint(`Quitação (parcelas restantes + 1 juros)`);
+            }
+
             if (valorInput) valorInput.readOnly = true;
 
-            // ✅ data = vencimento da parcela alvo
             syncDataPagamentoComVencimento(parcelaAlvoData);
 
           } else if (t === "INTEGRAL") {
@@ -589,21 +609,18 @@
             setHint(`Pagamento integral (saldo estimado): ${money(saldo)}`);
             if (valorInput) valorInput.readOnly = true;
 
-            // ✅ data = vencimento da parcela alvo
             syncDataPagamentoComVencimento(parcelaAlvoData);
 
           } else if (t === "EXTRA") {
             setPay("valor_pago", "");
             setHint(`Valor parcial (preencha manualmente).`);
 
-            // ✅ data = vencimento da parcela alvo
             syncDataPagamentoComVencimento(parcelaAlvoData);
 
           } else {
             setPay("valor_pago", "");
             setHint("");
 
-            // ✅ data = vencimento da parcela alvo
             syncDataPagamentoComVencimento(parcelaAlvoData);
           }
         }
