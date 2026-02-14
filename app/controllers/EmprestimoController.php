@@ -9,7 +9,6 @@ require_once __DIR__ . '/../models/daos/PagamentoDAO.php';
 require_once __DIR__ . '/../models/daos/ClienteDAO.php';
 require_once __DIR__ . '/../../app/config/database.php';
 
-
 class EmprestimoController
 {
     public function criar(): void
@@ -43,12 +42,11 @@ class EmprestimoController
                 throw new InvalidArgumentException("Quantidade de parcelas inválida.");
             }
 
-            $principalC = (int) round($principal * 100);
             $jurosPctF  = $jurosPct / 100;
 
             if ($tipoV === 'MENSAL') {
-                $jurosInteiro = $principal * $jurosPctF; // ex: 300
-                $totalComJuros = $principal + ($jurosInteiro * $qtd); // ex: 1900
+                $jurosInteiro = $principal * $jurosPctF;
+                $totalComJuros = $principal + ($jurosInteiro * $qtd);
             } else {
                 $totalComJuros = $principal * (1 + $jurosPctF);
             }
@@ -103,29 +101,46 @@ class EmprestimoController
         $jurosPct = isset($_POST['porcentagem_juros']) ? (float)$_POST['porcentagem_juros'] : -1;
         if ($jurosPct < 0) throw new InvalidArgumentException("Juros (%) inválido.");
 
+        // ✅ regra_vencimento (pode ser alterada)
+        $regraPost = isset($_POST['regra_vencimento']) ? trim((string)$_POST['regra_vencimento']) : '';
+
         $empDAO = new EmprestimoDAO();
         $parDAO = new ParcelaDAO();
 
         $emp = $empDAO->buscarPorId($id);
         if (!$emp) throw new RuntimeException("Empréstimo não encontrado.");
 
-        $status = strtoupper(trim($emp->getStatus() ?? ''));
-        if ($status === 'QUITADO') {
+        $statusEmp = strtoupper(trim($emp->getStatus() ?? ''));
+        if ($statusEmp === 'QUITADO') {
             throw new RuntimeException("Não é possível editar um empréstimo quitado.");
         }
 
-        // ✅ segurança: se já tem qualquer pagamento/parcialidade, bloqueia
+        $tipoV   = strtoupper(trim((string)$emp->getTipoVencimento()));
+        $dataEmp = (string)$emp->getDataEmprestimo();
+
+        // regra atual do banco
+        $regraAtual = (string)($emp->getRegraVencimento() ?? '');
+
+        // se veio regra no POST, valida e usa; senão mantém a atual
+        $regraNova = $regraAtual;
+        if ($regraPost !== '') {
+            $regraNova = $this->validarRegraVencimentoParaTipo($tipoV, $regraPost, $dataEmp);
+        } else {
+            // se não veio nada, não tem o que alterar
+            throw new InvalidArgumentException("Informe a regra do vencimento para alterar.");
+        }
+
+        // ✅ verifica se já teve algum pagamento/parcialidade
         $parcelasExistentes = $parDAO->listarPorEmprestimo($id);
+
+        $temMovimento = false;
         foreach ($parcelasExistentes as $p) {
             $st = strtoupper(trim((string)($p['status'] ?? '')));
             $valorPago = (float)($p['valor_pago'] ?? 0);
 
             if ($valorPago > 0 || in_array($st, ['PAGA', 'QUITADA', 'PARCIAL'], true)) {
-                throw new RuntimeException(
-                    "Este empréstimo já possui pagamentos/parcialidades. " .
-                    "Para não bagunçar o histórico, a edição de parcelas/juros é bloqueada. " .
-                    "Use 'Lançar pagamento' ou 'Marcar como quitado'."
-                );
+                $temMovimento = true;
+                break;
             }
         }
 
@@ -133,34 +148,87 @@ class EmprestimoController
         $pdo->beginTransaction();
 
         try {
-            // 1) atualiza o empréstimo (dentro da transação)
+            // ✅ sempre atualiza a regra_vencimento no empréstimo
+            $stmtUpRegra = $pdo->prepare("
+                UPDATE emprestimos
+                SET regra_vencimento = :regra
+                WHERE id = :id
+            ");
+            $stmtUpRegra->execute([
+                ':regra' => $regraNova,
+                ':id'    => $id
+            ]);
+
+            if ($temMovimento) {
+                // ✅ COM MOVIMENTO: só altera vencimentos das parcelas NÃO PAGAS
+                // não apaga parcelas, não recalcula valores, não mexe em juros/qtd
+
+                // seleciona parcelas não pagas (mantém pagas/quitadas intactas)
+                $stmtSel = $pdo->prepare("
+                    SELECT id, numero_parcela, status, valor_pago, valor_parcela
+                    FROM parcelas
+                    WHERE emprestimo_id = :id
+                    ORDER BY numero_parcela ASC
+                ");
+                $stmtSel->execute([':id' => $id]);
+                $rows = $stmtSel->fetchAll(PDO::FETCH_ASSOC);
+
+                $stmtUpParc = $pdo->prepare("
+                    UPDATE parcelas
+                    SET data_vencimento = :dv
+                    WHERE id = :pid
+                ");
+
+                foreach ($rows as $row) {
+                    $st = strtoupper(trim((string)($row['status'] ?? '')));
+                    $valorPago = (float)($row['valor_pago'] ?? 0);
+                    $valorParcela = (float)($row['valor_parcela'] ?? 0);
+
+                    $isPaga = in_array($st, ['PAGA', 'QUITADA'], true) || ($valorParcela > 0 && $valorPago >= $valorParcela);
+
+                    if ($isPaga) {
+                        // não mexe nas pagas
+                        continue;
+                    }
+
+                    $n = (int)$row['numero_parcela'];
+                    $dv = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $n);
+
+                    $stmtUpParc->execute([
+                        ':dv'  => $dv,
+                        ':pid' => (int)$row['id']
+                    ]);
+                }
+
+                $pdo->commit();
+                $this->responderJson(true, "Vencimentos atualizados (parcelas pagas mantidas).");
+                return;
+            }
+
+            // ✅ SEM MOVIMENTO: pode alterar tudo e recriar parcelas (lógica antiga)
+            // 1) atualiza o empréstimo completo
             $stmtUp = $pdo->prepare("
                 UPDATE emprestimos
                 SET quantidade_parcelas = :qtd,
-                    porcentagem_juros = :juros
+                    porcentagem_juros = :juros,
+                    regra_vencimento = :regra
                 WHERE id = :id
             ");
             $stmtUp->execute([
-                ':qtd' => $qtd,
+                ':qtd'   => $qtd,
                 ':juros' => $jurosPct,
-                ':id' => $id
+                ':regra' => $regraNova,
+                ':id'    => $id
             ]);
 
             // 2) remove parcelas antigas
             $stmtDel = $pdo->prepare("DELETE FROM parcelas WHERE emprestimo_id = :id");
             $stmtDel->execute([':id' => $id]);
 
-            // 3) recalcula e recria parcelas (mesma regra do criar)
+            // 3) recalcula e recria parcelas
             $principal = (float)$emp->getValorPrincipal();
-            $tipoV     = strtoupper(trim((string)$emp->getTipoVencimento()));
-            $dataEmp   = (string)$emp->getDataEmprestimo();
-            $regra     = $emp->getRegraVencimento();
-
-            if ($qtd <= 0) throw new InvalidArgumentException("Quantidade de parcelas inválida.");
-
             $jurosPctF = $jurosPct / 100;
 
-            // ✅ JUROS: DIARIO/SEMANAL = igual (uma vez), MENSAL = diferente (juros por parcela)
             if ($tipoV === 'MENSAL') {
                 $jurosInteiro = $principal * $jurosPctF;
                 $totalComJuros = $principal + ($jurosInteiro * $qtd);
@@ -183,7 +251,7 @@ class EmprestimoController
                 $valorParcelaC = ($i === $qtd) ? ($baseC + $restoC) : $baseC;
                 $valorParcela  = $valorParcelaC / 100;
 
-                $venc = $this->calcularVencimento($dataEmp, $tipoV, $regra, $i);
+                $venc = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $i);
 
                 $stmtIns->execute([
                     ':eid' => $id,
@@ -194,16 +262,59 @@ class EmprestimoController
             }
 
             $pdo->commit();
+            $this->responderJson(true, "Empréstimo atualizado e parcelas recalculadas automaticamente.");
         } catch (Exception $e) {
             $pdo->rollBack();
             throw $e;
         }
-
-        $this->responderJson(true, "Empréstimo atualizado e parcelas recalculadas automaticamente.");
     } catch (Exception $e) {
         $this->responderJson(false, $e->getMessage());
     }
 }
+
+
+    /**
+     * ✅ NOVO: valida regra_vencimento conforme tipo do empréstimo
+     * - DIARIO/MENSAL: espera data YYYY-MM-DD (primeiro vencimento) e >= data do empréstimo
+     * - SEMANAL: espera número 1..6 (Seg..Sáb) (mantive sua regra original)
+     */
+    private function validarRegraVencimentoParaTipo(string $tipo, string $regra, string $dataEmprestimo): string
+    {
+        $tipo = strtoupper(trim($tipo));
+        $regra = trim((string)$regra);
+
+        if ($tipo === 'SEMANAL') {
+            if ($regra === '') throw new InvalidArgumentException("regra_vencimento é obrigatória para SEMANAL.");
+
+            $dow = (int)$regra; // 1..6 (Seg..Sáb)
+            if ($dow < 1 || $dow > 6) {
+                throw new InvalidArgumentException("regra_vencimento semanal deve ser 1-6 (Segunda a Sábado).");
+            }
+            return (string)$dow;
+        }
+
+        if ($tipo === 'DIARIO' || $tipo === 'MENSAL') {
+            if ($regra === '') {
+                throw new InvalidArgumentException("regra_vencimento (primeiro vencimento) é obrigatória para {$tipo}.");
+            }
+
+            // valida formato simples YYYY-MM-DD
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $regra)) {
+                throw new InvalidArgumentException("regra_vencimento deve ser uma data no formato YYYY-MM-DD.");
+            }
+
+            $baseDt = new DateTime($dataEmprestimo);
+            $first  = new DateTime($regra);
+
+            if ($first < $baseDt) {
+                throw new InvalidArgumentException("O primeiro vencimento ({$tipo}) não pode ser menor que a data do empréstimo.");
+            }
+
+            return $first->format('Y-m-d');
+        }
+
+        throw new InvalidArgumentException("tipo_vencimento inválido.");
+    }
 
     private function calcularVencimento(string $base, string $tipo, ?string $regra, int $n): string
     {
