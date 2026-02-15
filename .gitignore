@@ -1,5 +1,5 @@
 # Uploads de usuários
-public/uploads/
+public/uploads/clientes
 app/config/env.php
 
 # Arquivos temporários
