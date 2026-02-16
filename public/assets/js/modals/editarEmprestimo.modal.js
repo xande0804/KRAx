@@ -83,6 +83,34 @@
     return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
   }
 
+  // ✅ NOVO: normaliza o que vier do backend pra caber no <input type="date">
+  // Aceita:
+  // - "2026-02-15"
+  // - "2026-02-15 00:00:00"
+  // - "2026-02-15T00:00:00"
+  // - "15/02/2026"
+  function normalizeDateForInput(raw) {
+    const s = String(raw ?? "").trim();
+    if (!s) return "";
+
+    // já está perfeito
+    if (isDateYMD(s)) return s;
+
+    // "YYYY-MM-DD ..." ou "YYYY-MM-DDT..."
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      return s.slice(0, 10);
+    }
+
+    // "DD/MM/YYYY"
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (m) {
+      const dd = m[1], mm = m[2], yyyy = m[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    return "";
+  }
+
   function setRegraUI(modal, tipoV) {
     const t = String(tipoV || "").trim().toUpperCase();
 
@@ -112,6 +140,7 @@
       if (hint) hint.textContent = "Selecione uma data (YYYY-MM-DD).";
       if (boxWeek) boxWeek.style.display = "none";
       if (boxDate) boxDate.style.display = "";
+      if (inputDate) inputDate.placeholder = "YYYY-MM-DD";
     }
   }
 
@@ -173,7 +202,6 @@
               </div>
             </div>
 
-            <!-- ✅ NOVO: vencimento seguindo regra do backend -->
             <div class="field">
               <label data-edit="regra_label">Primeiro vencimento</label>
 
@@ -196,7 +224,6 @@
                 />
               </div>
 
-              <!-- name real enviado -->
               <input type="hidden" name="regra_vencimento" data-edit="regra_vencimento_hidden" value="" />
 
               <div class="muted" data-edit="regra_hint" style="margin-top:6px;"></div>
@@ -296,6 +323,32 @@
       return v;
     }
 
+    function saveSnapshot() {
+      const qtd = String(modal.querySelector(`[data-edit="quantidade_parcelas"]`)?.value ?? "").trim();
+      const juros = String(modal.querySelector(`[data-edit="porcentagem_juros"]`)?.value ?? "").trim();
+      const obs = String(modal.querySelector(`[data-edit="observacao"]`)?.value ?? "").trim();
+      const regra = String(modal.querySelector('[data-edit="regra_vencimento_hidden"]')?.value ?? "").trim();
+
+      modal.dataset.snapshotQtd = qtd;
+      modal.dataset.snapshotJuros = juros;
+      modal.dataset.snapshotObs = obs;
+      modal.dataset.snapshotRegra = regra;
+    }
+
+    function isUnchanged() {
+      const qtd = String(modal.querySelector(`[data-edit="quantidade_parcelas"]`)?.value ?? "").trim();
+      const juros = String(modal.querySelector(`[data-edit="porcentagem_juros"]`)?.value ?? "").trim();
+      const obs = String(modal.querySelector(`[data-edit="observacao"]`)?.value ?? "").trim();
+      const regra = String(modal.querySelector('[data-edit="regra_vencimento_hidden"]')?.value ?? "").trim();
+
+      return (
+        qtd === String(modal.dataset.snapshotQtd || "") &&
+        juros === String(modal.dataset.snapshotJuros || "") &&
+        obs === String(modal.dataset.snapshotObs || "") &&
+        regra === String(modal.dataset.snapshotRegra || "")
+      );
+    }
+
     const form = modal.querySelector("#formEditarEmprestimo");
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -304,8 +357,15 @@
         const btn = modal.querySelector("#btnSalvarEdicaoEmprestimo");
         if (btn) btn.disabled = true;
 
-        // garante hidden atualizado
         const regra = syncHiddenRegra();
+
+        // ✅ se não mudou nada, Salvar vira Cancelar
+        if (isUnchanged()) {
+          if (btn) btn.disabled = false;
+          GestorModal.close("modalEditarEmprestimo");
+          return;
+        }
+
         const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
 
         if (!regra) {
@@ -314,7 +374,6 @@
           return;
         }
 
-        // valida conforme backend
         if (tipoV === "SEMANAL") {
           const dow = parseInt(regra, 10);
           if (!(Number.isFinite(dow) && dow >= 1 && dow <= 6)) {
@@ -331,8 +390,6 @@
         }
 
         const fd = new FormData(form);
-
-        // ✅ sempre recalcula automaticamente (sem checkbox)
         fd.set("recalcular_parcelas", "1");
 
         const res = await fetch("/KRAx/public/api.php?route=emprestimos/atualizar", {
@@ -360,7 +417,6 @@
         GestorModal.close("modalEditarEmprestimo");
         onSuccess(json.mensagem || "Empréstimo atualizado!");
 
-        // reabre detalhes atualizado
         const emprestimoId = String(modal.dataset.emprestimoId || fd.get("emprestimo_id") || "").trim();
         const origem = String(modal.dataset.origem || "emprestimos").trim();
         const clienteId = String(modal.dataset.clienteId || "").trim();
@@ -380,13 +436,11 @@
       }
     });
 
-    // listeners pra preview
     const qtdInput = modal.querySelector(`[data-edit="quantidade_parcelas"]`);
     const jurosInput = modal.querySelector(`[data-edit="porcentagem_juros"]`);
     if (qtdInput) qtdInput.addEventListener("input", refreshPreview);
     if (jurosInput) jurosInput.addEventListener("input", refreshPreview);
 
-    // listeners pra regra -> manter hidden sempre certo
     const regraDate = modal.querySelector('[data-edit="regra_date"]');
     const regraWeek = modal.querySelector('[data-edit="regra_week"]');
     if (regraDate) regraDate.addEventListener("input", syncHiddenRegra);
@@ -396,9 +450,9 @@
     modal._refreshPreview = refreshPreview;
     modal._setRegraUI = (tipoV) => setRegraUI(modal, tipoV);
     modal._syncHiddenRegra = syncHiddenRegra;
+    modal._saveSnapshot = saveSnapshot;
   }
 
-  // payload pode vir com dados já prontos, mas o modal também busca do backend se precisar
   async function openEditarEmprestimo(payload) {
     const modal = document.getElementById("modalEditarEmprestimo");
     if (!modal) return;
@@ -415,24 +469,24 @@
     const refreshPreview = modal._refreshPreview || function () { };
     const setRegraUIFn = modal._setRegraUI || function () { };
     const syncHiddenRegra = modal._syncHiddenRegra || function () { };
+    const saveSnapshot = modal._saveSnapshot || function () { };
 
     modal.dataset.emprestimoId = emprestimoId;
     modal.dataset.origem = String(payload?.origem || "emprestimos");
     modal.dataset.clienteId = String(payload?.clienteId || "");
 
-    // valores iniciais (se tiver)
     setEdit("emprestimo_id", emprestimoId);
     setEdit("cliente_nome", payload?.clienteNome || "—");
     setEdit("quantidade_parcelas", String(payload?.quantidadeParcelas ?? ""));
     setEdit("porcentagem_juros", String(payload?.jurosPct ?? ""));
-    setEdit("observacao", "");
+    setEdit("observacao", String(payload?.observacao ?? ""));
 
-    // para preview (se tiver)
     modal.dataset.principal = String(payload?.principal ?? "");
     modal.dataset.tipoVencimento = String(payload?.tipoVencimento ?? "");
 
-    // se não tiver info suficiente, busca detalhes do empréstimo
-    const needFetch = !modal.dataset.principal || !modal.dataset.tipoVencimento;
+    const payloadRegra = String(payload?.regraVencimento ?? payload?.regra_vencimento ?? "").trim();
+
+    const needFetch = !modal.dataset.principal || !modal.dataset.tipoVencimento || (!payloadRegra);
 
     if (needFetch) {
       try {
@@ -451,44 +505,51 @@
           if (payload?.jurosPct == null && emp.porcentagem_juros != null) setEdit("porcentagem_juros", String(emp.porcentagem_juros));
           if (!payload?.clienteId && emp.cliente_id != null) modal.dataset.clienteId = String(emp.cliente_id);
 
-          // ✅ regra atual do vencimento (formato do backend)
           const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
-          const regraAtual = String(emp.regra_vencimento ?? "").trim();
+          const regraAtualRaw = String(emp.regra_vencimento ?? "").trim();
 
-          // atualiza UI (tipo e qual input mostrar)
           setEdit("tipo_vencimento", String(modal.dataset.tipoVencimento || "—"));
           setRegraUIFn(modal.dataset.tipoVencimento);
 
-          // preenche input correto
           const inputDate = modal.querySelector('[data-edit="regra_date"]');
           const inputWeek = modal.querySelector('[data-edit="regra_week"]');
 
           if (tipoV === "SEMANAL") {
-            if (inputWeek) inputWeek.value = regraAtual;
+            if (inputWeek) inputWeek.value = regraAtualRaw;
           } else {
-            // DIARIO/MENSAL: regra é data
-            if (inputDate) inputDate.value = regraAtual;
+            const normalized = normalizeDateForInput(regraAtualRaw);
+            if (inputDate) inputDate.value = normalized;
           }
 
-          // joga no hidden name="regra_vencimento"
           syncHiddenRegra();
         }
       } catch (e) {
         console.error(e);
-        // segue mesmo assim
       }
     } else {
-      // já tem tipo pelo payload
+      const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
+
       setEdit("tipo_vencimento", String(modal.dataset.tipoVencimento || "—"));
       setRegraUIFn(modal.dataset.tipoVencimento);
+
+      const inputDate = modal.querySelector('[data-edit="regra_date"]');
+      const inputWeek = modal.querySelector('[data-edit="regra_week"]');
+
+      if (tipoV === "SEMANAL") {
+        if (inputWeek) inputWeek.value = payloadRegra;
+      } else {
+        const normalized = normalizeDateForInput(payloadRegra);
+        if (inputDate) inputDate.value = normalized;
+      }
+
       syncHiddenRegra();
     }
 
     refreshPreview();
+    saveSnapshot();
     GestorModal.open("modalEditarEmprestimo");
   }
 
-  // expõe global
   window.injectModalEditarEmprestimo = injectModalEditarEmprestimo;
   window.openEditarEmprestimo = openEditarEmprestimo;
 })();

@@ -90,193 +90,240 @@ class EmprestimoController
     }
 
     public function atualizar(): void
-{
-    try {
-        $id = isset($_POST['emprestimo_id']) ? (int)$_POST['emprestimo_id'] : 0;
-        if ($id <= 0) throw new InvalidArgumentException("emprestimo_id inválido.");
-
-        $qtd = isset($_POST['quantidade_parcelas']) ? (int)$_POST['quantidade_parcelas'] : 0;
-        if ($qtd <= 0) throw new InvalidArgumentException("Quantidade de parcelas inválida.");
-
-        $jurosPct = isset($_POST['porcentagem_juros']) ? (float)$_POST['porcentagem_juros'] : -1;
-        if ($jurosPct < 0) throw new InvalidArgumentException("Juros (%) inválido.");
-
-        // ✅ regra_vencimento (pode ser alterada)
-        $regraPost = isset($_POST['regra_vencimento']) ? trim((string)$_POST['regra_vencimento']) : '';
-
-        $empDAO = new EmprestimoDAO();
-        $parDAO = new ParcelaDAO();
-
-        $emp = $empDAO->buscarPorId($id);
-        if (!$emp) throw new RuntimeException("Empréstimo não encontrado.");
-
-        $statusEmp = strtoupper(trim($emp->getStatus() ?? ''));
-        if ($statusEmp === 'QUITADO') {
-            throw new RuntimeException("Não é possível editar um empréstimo quitado.");
-        }
-
-        $tipoV   = strtoupper(trim((string)$emp->getTipoVencimento()));
-        $dataEmp = (string)$emp->getDataEmprestimo();
-
-        // regra atual do banco
-        $regraAtual = (string)($emp->getRegraVencimento() ?? '');
-
-        // se veio regra no POST, valida e usa; senão mantém a atual
-        $regraNova = $regraAtual;
-        if ($regraPost !== '') {
-            $regraNova = $this->validarRegraVencimentoParaTipo($tipoV, $regraPost, $dataEmp);
-        } else {
-            // se não veio nada, não tem o que alterar
-            throw new InvalidArgumentException("Informe a regra do vencimento para alterar.");
-        }
-
-        // ✅ verifica se já teve algum pagamento/parcialidade
-        $parcelasExistentes = $parDAO->listarPorEmprestimo($id);
-
-        $temMovimento = false;
-        foreach ($parcelasExistentes as $p) {
-            $st = strtoupper(trim((string)($p['status'] ?? '')));
-            $valorPago = (float)($p['valor_pago'] ?? 0);
-
-            if ($valorPago > 0 || in_array($st, ['PAGA', 'QUITADA', 'PARCIAL'], true)) {
-                $temMovimento = true;
-                break;
-            }
-        }
-
-        $pdo = Database::conectar();
-        $pdo->beginTransaction();
-
+    {
         try {
-            // ✅ sempre atualiza a regra_vencimento no empréstimo
-            $stmtUpRegra = $pdo->prepare("
-                UPDATE emprestimos
-                SET regra_vencimento = :regra
-                WHERE id = :id
-            ");
-            $stmtUpRegra->execute([
-                ':regra' => $regraNova,
-                ':id'    => $id
-            ]);
+            $id = isset($_POST['emprestimo_id']) ? (int)$_POST['emprestimo_id'] : 0;
+            if ($id <= 0) throw new InvalidArgumentException("emprestimo_id inválido.");
 
-            if ($temMovimento) {
-                // ✅ COM MOVIMENTO: só altera vencimentos das parcelas NÃO PAGAS
-                // não apaga parcelas, não recalcula valores, não mexe em juros/qtd
+            $qtd = isset($_POST['quantidade_parcelas']) ? (int)$_POST['quantidade_parcelas'] : 0;
+            if ($qtd <= 0) throw new InvalidArgumentException("Quantidade de parcelas inválida.");
 
-                // seleciona parcelas não pagas (mantém pagas/quitadas intactas)
-                $stmtSel = $pdo->prepare("
-                    SELECT id, numero_parcela, status, valor_pago, valor_parcela
-                    FROM parcelas
-                    WHERE emprestimo_id = :id
-                    ORDER BY numero_parcela ASC
+            $jurosPct = isset($_POST['porcentagem_juros']) ? (float)$_POST['porcentagem_juros'] : -1;
+            if ($jurosPct < 0) throw new InvalidArgumentException("Juros (%) inválido.");
+
+            // ✅ regra_vencimento (pode ser alterada)
+            $regraPost = isset($_POST['regra_vencimento']) ? trim((string)$_POST['regra_vencimento']) : '';
+
+            $empDAO = new EmprestimoDAO();
+            $parDAO = new ParcelaDAO();
+
+            $emp = $empDAO->buscarPorId($id);
+            if (!$emp) throw new RuntimeException("Empréstimo não encontrado.");
+
+            $statusEmp = strtoupper(trim($emp->getStatus() ?? ''));
+            if ($statusEmp === 'QUITADO') {
+                throw new RuntimeException("Não é possível editar um empréstimo quitado.");
+            }
+
+            $tipoV   = strtoupper(trim((string)$emp->getTipoVencimento()));
+            $dataEmp = (string)$emp->getDataEmprestimo();
+
+            // regra atual do banco
+            $regraAtual = (string)($emp->getRegraVencimento() ?? '');
+
+            // se veio regra no POST, valida e usa; senão mantém a atual
+            $regraNova = $regraAtual;
+            if ($regraPost !== '') {
+                $regraNova = $this->validarRegraVencimentoParaTipo($tipoV, $regraPost, $dataEmp);
+            } else {
+                // se não veio nada, não tem o que alterar
+                throw new InvalidArgumentException("Informe a regra do vencimento para alterar.");
+            }
+
+            // ✅ verifica se já teve algum pagamento/parcialidade
+            $parcelasExistentes = $parDAO->listarPorEmprestimo($id);
+
+            $temMovimento = false;
+            foreach ($parcelasExistentes as $p) {
+                $st = strtoupper(trim((string)($p['status'] ?? '')));
+                $valorPago = (float)($p['valor_pago'] ?? 0);
+
+                if ($valorPago > 0 || in_array($st, ['PAGA', 'QUITADA', 'PARCIAL'], true)) {
+                    $temMovimento = true;
+                    break;
+                }
+            }
+
+            $pdo = Database::conectar();
+            $pdo->beginTransaction();
+
+            try {
+                // ✅ sempre atualiza a regra_vencimento no empréstimo
+                $stmtUpRegra = $pdo->prepare("
+                    UPDATE emprestimos
+                    SET regra_vencimento = :regra
+                    WHERE id = :id
                 ");
-                $stmtSel->execute([':id' => $id]);
-                $rows = $stmtSel->fetchAll(PDO::FETCH_ASSOC);
+                $stmtUpRegra->execute([
+                    ':regra' => $regraNova,
+                    ':id'    => $id
+                ]);
 
-                $stmtUpParc = $pdo->prepare("
-                    UPDATE parcelas
-                    SET data_vencimento = :dv
-                    WHERE id = :pid
-                ");
+                if ($temMovimento) {
+                    // ✅ COM MOVIMENTO: só altera vencimentos das parcelas NÃO PAGAS
+                    // não apaga parcelas, não recalcula valores, não mexe em juros/qtd
 
-                foreach ($rows as $row) {
-                    $st = strtoupper(trim((string)($row['status'] ?? '')));
-                    $valorPago = (float)($row['valor_pago'] ?? 0);
-                    $valorParcela = (float)($row['valor_parcela'] ?? 0);
+                    $stmtSel = $pdo->prepare("
+                        SELECT id, numero_parcela, status, valor_pago, valor_parcela
+                        FROM parcelas
+                        WHERE emprestimo_id = :id
+                        ORDER BY numero_parcela ASC
+                    ");
+                    $stmtSel->execute([':id' => $id]);
+                    $rows = $stmtSel->fetchAll(PDO::FETCH_ASSOC);
 
-                    $isPaga = in_array($st, ['PAGA', 'QUITADA'], true) || ($valorParcela > 0 && $valorPago >= $valorParcela);
+                    $stmtUpParc = $pdo->prepare("
+                        UPDATE parcelas
+                        SET data_vencimento = :dv
+                        WHERE id = :pid
+                    ");
 
-                    if ($isPaga) {
-                        // não mexe nas pagas
-                        continue;
+                    foreach ($rows as $row) {
+                        $st = strtoupper(trim((string)($row['status'] ?? '')));
+                        $valorPago = (float)($row['valor_pago'] ?? 0);
+                        $valorParcela = (float)($row['valor_parcela'] ?? 0);
+
+                        $isPaga = in_array($st, ['PAGA', 'QUITADA'], true) || ($valorParcela > 0 && $valorPago >= $valorParcela);
+
+                        if ($isPaga) {
+                            continue;
+                        }
+
+                        $n = (int)$row['numero_parcela'];
+                        $dv = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $n);
+
+                        $stmtUpParc->execute([
+                            ':dv'  => $dv,
+                            ':pid' => (int)$row['id']
+                        ]);
                     }
 
-                    $n = (int)$row['numero_parcela'];
-                    $dv = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $n);
+                    $pdo->commit();
+                    $this->responderJson(true, "Vencimentos atualizados (parcelas pagas mantidas).");
+                    return;
+                }
 
-                    $stmtUpParc->execute([
-                        ':dv'  => $dv,
-                        ':pid' => (int)$row['id']
+                // ✅ SEM MOVIMENTO: pode alterar tudo e recriar parcelas
+                $stmtUp = $pdo->prepare("
+                    UPDATE emprestimos
+                    SET quantidade_parcelas = :qtd,
+                        porcentagem_juros = :juros,
+                        regra_vencimento = :regra
+                    WHERE id = :id
+                ");
+                $stmtUp->execute([
+                    ':qtd'   => $qtd,
+                    ':juros' => $jurosPct,
+                    ':regra' => $regraNova,
+                    ':id'    => $id
+                ]);
+
+                $stmtDel = $pdo->prepare("DELETE FROM parcelas WHERE emprestimo_id = :id");
+                $stmtDel->execute([':id' => $id]);
+
+                $principal = (float)$emp->getValorPrincipal();
+                $jurosPctF = $jurosPct / 100;
+
+                if ($tipoV === 'MENSAL') {
+                    $jurosInteiro = $principal * $jurosPctF;
+                    $totalComJuros = $principal + ($jurosInteiro * $qtd);
+                } else {
+                    $totalComJuros = $principal * (1 + $jurosPctF);
+                }
+
+                $totalComJurosC = (int) round($totalComJuros * 100);
+                $baseC  = intdiv($totalComJurosC, $qtd);
+                $restoC = $totalComJurosC - ($baseC * $qtd);
+
+                $stmtIns = $pdo->prepare("
+                    INSERT INTO parcelas
+                    (emprestimo_id, numero_parcela, data_vencimento, valor_parcela, valor_pago, status)
+                    VALUES
+                    (:eid, :num, :dv, :vp, 0, 'ABERTA')
+                ");
+
+                for ($i = 1; $i <= $qtd; $i++) {
+                    $valorParcelaC = ($i === $qtd) ? ($baseC + $restoC) : $baseC;
+                    $valorParcela  = $valorParcelaC / 100;
+
+                    $venc = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $i);
+
+                    $stmtIns->execute([
+                        ':eid' => $id,
+                        ':num' => $i,
+                        ':dv'  => $venc,
+                        ':vp'  => $valorParcela,
                     ]);
                 }
 
                 $pdo->commit();
-                $this->responderJson(true, "Vencimentos atualizados (parcelas pagas mantidas).");
-                return;
+                $this->responderJson(true, "Empréstimo atualizado e parcelas recalculadas automaticamente.");
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                throw $e;
             }
-
-            // ✅ SEM MOVIMENTO: pode alterar tudo e recriar parcelas (lógica antiga)
-            // 1) atualiza o empréstimo completo
-            $stmtUp = $pdo->prepare("
-                UPDATE emprestimos
-                SET quantidade_parcelas = :qtd,
-                    porcentagem_juros = :juros,
-                    regra_vencimento = :regra
-                WHERE id = :id
-            ");
-            $stmtUp->execute([
-                ':qtd'   => $qtd,
-                ':juros' => $jurosPct,
-                ':regra' => $regraNova,
-                ':id'    => $id
-            ]);
-
-            // 2) remove parcelas antigas
-            $stmtDel = $pdo->prepare("DELETE FROM parcelas WHERE emprestimo_id = :id");
-            $stmtDel->execute([':id' => $id]);
-
-            // 3) recalcula e recria parcelas
-            $principal = (float)$emp->getValorPrincipal();
-            $jurosPctF = $jurosPct / 100;
-
-            if ($tipoV === 'MENSAL') {
-                $jurosInteiro = $principal * $jurosPctF;
-                $totalComJuros = $principal + ($jurosInteiro * $qtd);
-            } else {
-                $totalComJuros = $principal * (1 + $jurosPctF);
-            }
-
-            $totalComJurosC = (int) round($totalComJuros * 100);
-            $baseC  = intdiv($totalComJurosC, $qtd);
-            $restoC = $totalComJurosC - ($baseC * $qtd);
-
-            $stmtIns = $pdo->prepare("
-                INSERT INTO parcelas
-                (emprestimo_id, numero_parcela, data_vencimento, valor_parcela, valor_pago, status)
-                VALUES
-                (:eid, :num, :dv, :vp, 0, 'ABERTA')
-            ");
-
-            for ($i = 1; $i <= $qtd; $i++) {
-                $valorParcelaC = ($i === $qtd) ? ($baseC + $restoC) : $baseC;
-                $valorParcela  = $valorParcelaC / 100;
-
-                $venc = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $i);
-
-                $stmtIns->execute([
-                    ':eid' => $id,
-                    ':num' => $i,
-                    ':dv'  => $venc,
-                    ':vp'  => $valorParcela,
-                ]);
-            }
-
-            $pdo->commit();
-            $this->responderJson(true, "Empréstimo atualizado e parcelas recalculadas automaticamente.");
         } catch (Exception $e) {
-            $pdo->rollBack();
-            throw $e;
+            $this->responderJson(false, $e->getMessage());
         }
-    } catch (Exception $e) {
-        $this->responderJson(false, $e->getMessage());
     }
-}
 
+    /**
+     * ✅ NOVO: normaliza regra_vencimento pro FRONT (especialmente pro <input type="date">).
+     * - SEMANAL: mantém número 1..6
+     * - DIARIO/MENSAL:
+     *   - se já for YYYY-MM-DD, mantém
+     *   - se vier legado (ex: "15"), tenta pegar a data da parcela 1 (primeiro vencimento real)
+     */
+    private function normalizarRegraVencimentoParaUI(string $tipoV, string $regraRaw, array $parcelas): string
+    {
+        $tipo = strtoupper(trim($tipoV));
+        $raw  = trim((string)$regraRaw);
+
+        if ($tipo === 'SEMANAL') {
+            return $raw;
+        }
+
+        // já vem perfeito
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
+            return $raw;
+        }
+
+        // vem como DATETIME / ISO -> pega só a data
+        if (preg_match('/^\d{4}-\d{2}-\d{2}/', $raw)) {
+            return substr($raw, 0, 10);
+        }
+
+        // legado: regra como número (ex: 15). Para UI, mostra o 1º vencimento real:
+        $firstDate = '';
+
+        // tenta achar parcela 1
+        foreach ($parcelas as $p) {
+            $num = isset($p['numero_parcela']) ? (int)$p['numero_parcela'] : 0;
+            if ($num === 1 && !empty($p['data_vencimento'])) {
+                $firstDate = substr((string)$p['data_vencimento'], 0, 10);
+                break;
+            }
+        }
+
+        // fallback: pega o menor data_vencimento
+        if (!$firstDate) {
+            $min = null;
+            foreach ($parcelas as $p) {
+                if (empty($p['data_vencimento'])) continue;
+                $d = substr((string)$p['data_vencimento'], 0, 10);
+                if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) continue;
+                if ($min === null || $d < $min) $min = $d;
+            }
+            if ($min) $firstDate = $min;
+        }
+
+        return $firstDate; // pode ser '' se não achar
+    }
 
     /**
      * ✅ NOVO: valida regra_vencimento conforme tipo do empréstimo
      * - DIARIO/MENSAL: espera data YYYY-MM-DD (primeiro vencimento) e >= data do empréstimo
-     * - SEMANAL: espera número 1..6 (Seg..Sáb) (mantive sua regra original)
+     * - SEMANAL: espera número 1..6 (Seg..Sáb)
      */
     private function validarRegraVencimentoParaTipo(string $tipo, string $regra, string $dataEmprestimo): string
     {
@@ -298,7 +345,6 @@ class EmprestimoController
                 throw new InvalidArgumentException("regra_vencimento (primeiro vencimento) é obrigatória para {$tipo}.");
             }
 
-            // valida formato simples YYYY-MM-DD
             if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $regra)) {
                 throw new InvalidArgumentException("regra_vencimento deve ser uma data no formato YYYY-MM-DD.");
             }
@@ -492,7 +538,6 @@ class EmprestimoController
             $qtd       = max(1, (int)($row['quantidade_parcelas'] ?? 1));
             $tipoV     = strtoupper(trim((string)($row['tipo_vencimento'] ?? '')));
 
-            // ⚠️ aqui é só pra exibição de vencimentos; não mexi pra não criar efeito colateral
             if ($tipoV === 'MENSAL') {
                 $valorPrestacao = ($principal / $qtd) + ($principal * ($jurosPct / 100));
             } else {
@@ -537,6 +582,12 @@ class EmprestimoController
             $parcelas = $parDAO->listarPorEmprestimo($id);
             $pagamentos = $pagDAO->listarPorEmprestimo($id);
 
+            $tipoV = (string)$emp->getTipoVencimento();
+            $regraRaw = (string)$emp->getRegraVencimento();
+
+            // ✅ aqui garantimos que DIARIO/MENSAL venha como YYYY-MM-DD pro <input type="date">
+            $regraUI = $this->normalizarRegraVencimentoParaUI($tipoV, $regraRaw, $parcelas);
+
             $dados = [
                 'emprestimo' => [
                     'id' => $emp->getId(),
@@ -545,8 +596,14 @@ class EmprestimoController
                     'valor_principal' => $emp->getValorPrincipal(),
                     'porcentagem_juros' => $emp->getPorcentagemJuros(),
                     'quantidade_parcelas' => $emp->getQuantidadeParcelas(),
-                    'tipo_vencimento' => $emp->getTipoVencimento(),
-                    'regra_vencimento' => $emp->getRegraVencimento(),
+                    'tipo_vencimento' => $tipoV,
+
+                    // ✅ front usa esse
+                    'regra_vencimento' => $regraUI,
+
+                    // ✅ guardamos o original pra debug/legado
+                    'regra_vencimento_raw' => $regraRaw,
+
                     'status' => $emp->getStatus(),
                 ],
                 'cliente' => [

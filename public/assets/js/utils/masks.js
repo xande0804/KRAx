@@ -19,26 +19,26 @@
   }
 
   // ⚠️ VALIDAÇÃO CPF (comentada para DEV)
-    /*
-    function validarCPF(cpf) {
-      cpf = cpf.replace(/\D/g, "");
-      if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
-  
-      let soma = 0;
-      for (let i = 0; i < 9; i++) soma += cpf[i] * (10 - i);
-      let dig1 = (soma * 10) % 11;
-      if (dig1 === 10) dig1 = 0;
-      if (dig1 != cpf[9]) return false;
-  
-      soma = 0;
-      for (let i = 0; i < 10; i++) soma += cpf[i] * (11 - i);
-      let dig2 = (soma * 10) % 11;
-      if (dig2 === 10) dig2 = 0;
-      if (dig2 != cpf[10]) return false;
-  
-      return true;
-    }
-    */
+  /*
+  function validarCPF(cpf) {
+    cpf = cpf.replace(/\D/g, "");
+    if (cpf.length !== 11 || /^(\d)\1+$/.test(cpf)) return false;
+
+    let soma = 0;
+    for (let i = 0; i < 9; i++) soma += cpf[i] * (10 - i);
+    let dig1 = (soma * 10) % 11;
+    if (dig1 === 10) dig1 = 0;
+    if (dig1 != cpf[9]) return false;
+
+    soma = 0;
+    for (let i = 0; i < 10; i++) soma += cpf[i] * (11 - i);
+    let dig2 = (soma * 10) % 11;
+    if (dig2 === 10) dig2 = 0;
+    if (dig2 != cpf[10]) return false;
+
+    return true;
+  }
+  */
 
   // ✅ Leve: só a primeira letra do texto em maiúscula
   // (mantém o resto como o usuário digitou)
@@ -62,6 +62,40 @@
     );
   }
 
+  // ✅ NOVO: todas as palavras começam em maiúsculo (Title Case)
+  // Ex: "joao da silva" -> "Joao Da Silva"
+  // Trata hífen e apóstrofo: "ana-maria" -> "Ana-Maria", "d'avila" -> "D'Avila"
+  function titleCaseWords(value) {
+    let s = String(value ?? "");
+
+    // normaliza espaços duplicados, sem remover espaço final enquanto digita
+    s = s.replace(/\s+/g, " ");
+
+    // se só tem espaços, mantém como está
+    if (!s.trim()) return s;
+
+    // separa por espaços mantendo 1 espaço (já normalizamos)
+    return s.split(" ").map((word) => {
+      if (!word) return "";
+
+      // hífen
+      const hyphenParts = word.split("-").map((part) => {
+        if (!part) return "";
+
+        // apóstrofo
+        const aposParts = part.split("'").map((p) => {
+          if (!p) return "";
+          const lower = p.toLowerCase();
+          return lower.charAt(0).toUpperCase() + lower.slice(1);
+        });
+
+        return aposParts.join("'");
+      });
+
+      return hyphenParts.join("-");
+    }).join(" ");
+  }
+
   // ✅ Placa: AAA 1234 (ou Mercosul). Sempre uppercase e espaço após 3 chars
   function maskPlaca(value) {
     let s = String(value ?? "")
@@ -77,7 +111,7 @@
     const cpfInputs = container.querySelectorAll('input[name="cpf"]');
     const phoneInputs = container.querySelectorAll('input[name="telefone"]');
 
-    // ✅ novos campos do seu modal
+    // ✅ campos
     const nomeInputs = container.querySelectorAll('input[name="nome"]');
     const profInputs = container.querySelectorAll('input[name="profissao"]');
     const indicInputs = container.querySelectorAll('input[name="indicacao"]');
@@ -95,8 +129,15 @@
       });
     });
 
-    // Primeira letra maiúscula (nome/profissão/indicação)
-    [...nomeInputs, ...profInputs, ...indicInputs].forEach(input => {
+    // ✅ Nome e Indicação: todas as palavras com maiúscula
+    [...nomeInputs, ...indicInputs].forEach(input => {
+      input.addEventListener("input", () => {
+        input.value = titleCaseWords(input.value);
+      });
+    });
+
+    // ✅ Profissão: mantém seu comportamento antigo (só primeira letra do texto)
+    profInputs.forEach(input => {
       input.addEventListener("input", () => {
         input.value = capitalizeFirst(input.value);
       });

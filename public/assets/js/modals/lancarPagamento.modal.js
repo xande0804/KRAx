@@ -86,45 +86,34 @@
   }
 
   // ✅ NOVO: quitação correta
-  // - DIÁRIO/SEMANAL: total c/juros - SOMENTE parcelas totalmente pagas (ignora juros pagos)
-  // - MENSAL: mantém sua regra atual (parcelas restantes + 1 juros)
   function calcQuitacaoNova(emp, parcelasArr, pagamentosArr) {
     const principal = toNumber(emp.valor_principal);
     const jurosPct = toNumber(emp.porcentagem_juros);
     const qtdTotal = Math.max(1, toNumber(emp.quantidade_parcelas || parcelasArr.length || 1));
     const tipoV = String(emp.tipo_vencimento || "").trim().toUpperCase();
 
-    // total com juros do contrato
     const jurosTotalContrato = principal * (jurosPct / 100);
     const totalComJuros =
       tipoV === "MENSAL"
         ? (principal + (jurosTotalContrato * qtdTotal))
         : (principal * (1 + jurosPct / 100));
 
-    // ✅ DIÁRIO / SEMANAL: subtrai APENAS prestações pagas 100% (pela tabela de parcelas)
     if (tipoV === "DIARIO" || tipoV === "SEMANAL") {
       let totalParcelasPagasCheias = 0;
-
       const arr = Array.isArray(parcelasArr) ? parcelasArr : [];
+
       for (const p of arr) {
         const st = String(p.status || p.parcela_status || "").trim().toUpperCase();
         const vpar = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
         const vp = toNumber(p.valor_pago ?? p.valorPago ?? 0);
 
-        // considera "paga cheia" se status indica OU se valor_pago >= valor_parcela
         const pagaCheia = (st === "PAGA" || st === "QUITADA") || (vpar > 0 && vp >= vpar);
-
-        if (pagaCheia && vpar > 0) {
-          // subtrai o valor da parcela (não o que foi pago em juros)
-          totalParcelasPagasCheias += vpar;
-        }
+        if (pagaCheia && vpar > 0) totalParcelasPagasCheias += vpar;
       }
 
-      const quit = Math.max(0, totalComJuros - totalParcelasPagasCheias);
-      return round2(quit);
+      return round2(Math.max(0, totalComJuros - totalParcelasPagasCheias));
     }
 
-    // ✅ MENSAL: mantém sua regra (parcelas restantes + 1 juros)
     let faltanteParcelas = 0;
     let qtdRestantes = 0;
 
@@ -172,17 +161,13 @@
 
   async function safeReadJson(res) {
     const text = await res.text();
-
     try {
       return { ok: true, json: JSON.parse(text), raw: text };
     } catch (e) {
       console.error("❌ Resposta NÃO é JSON. Conteúdo completo abaixo:");
       console.error(text);
 
-      const snippet = String(text || "")
-        .replace(/\s+/g, " ")
-        .slice(0, 180);
-
+      const snippet = String(text || "").replace(/\s+/g, " ").slice(0, 180);
       return { ok: false, error: e, raw: text, snippet };
     }
   }
@@ -226,7 +211,7 @@
                 <option value="PARCELA">Prestação</option>
                 <option value="JUROS">Apenas juros</option>
                 <option value="QUITACAO">Quitação</option>
-                <option value="EXTRA">Valor parcial</option>
+                <option value="EXTRA">Multa</option>
               </select>
               <div class="muted" style="margin-top:6px;" data-pay="hint"></div>
             </div>
@@ -249,7 +234,7 @@
 
           <footer class="modal__footer modal__footer--end">
             <button class="btn" type="button" data-modal-close="modalLancarPagamento">Cancelar</button>
-            <button class="btn btn--primary" type="submit">Confirmar pagamento</button>
+            <button class="btn btn--primary" type="submit" data-pay="btn_submit">Confirmar pagamento</button>
           </footer>
         </form>
       </div>
@@ -269,48 +254,55 @@
       }
     };
 
+    // ✅ setHint guarda o "hint base" (sem aviso de atraso)
     const setHint = (text) => {
       const el = modal.querySelector(`[data-pay="hint"]`);
-      if (el) el.textContent = text || "";
+      if (!el) return;
+      el.dataset.baseHint = String(text || "");
+      el.textContent = String(text || "");
     };
 
-    function afterSuccessReturnFlow() {
-      const returnTo = String(modal.dataset.returnTo || "").trim();
-      const returnEmprestimoId = String(modal.dataset.returnEmprestimoId || modal.dataset.emprestimoId || "").trim();
-      const returnClienteId = String(modal.dataset.returnClienteId || modal.dataset.clienteId || "").trim();
+    // ✅ trava global de refresh
+    function afterSuccessReturnFlowOnce() {
+      if (modal.dataset.didReturn === "1") return;
+      modal.dataset.didReturn = "1";
 
-      const origem = String(modal.dataset.origem || "").trim();
+      if (window.__KRAx_refreshLock === "1") return;
+      window.__KRAx_refreshLock = "1";
 
-      if (returnTo === "detalhesEmprestimo" && returnEmprestimoId && typeof window.openDetalhesEmprestimo === "function") {
-        window.openDetalhesEmprestimo(returnEmprestimoId, {
-          origem: origem || "emprestimos",
-          clienteId: returnClienteId || ""
-        });
-        return;
+      const origem = String(modal.dataset.origem || "").toLowerCase();
+
+      try {
+        if (origem === "cliente" && typeof window.refreshClientesList === "function") {
+          window.refreshClientesList();
+          return;
+        }
+
+        if (typeof window.refreshEmprestimosList === "function") {
+          window.refreshEmprestimosList();
+          return;
+        }
+
+        window.location.reload();
+      } finally {
+        setTimeout(() => { window.__KRAx_refreshLock = "0"; }, 1200);
       }
-
-      if ((returnTo === "detalhesCliente" || origem === "cliente") && returnClienteId && typeof window.openDetalhesCliente === "function") {
-        window.openDetalhesCliente(returnClienteId);
-        return;
-      }
-
-      let refreshed = false;
-      if (typeof window.refreshEmprestimosList === "function") {
-        window.refreshEmprestimosList();
-        refreshed = true;
-      }
-      if (typeof window.refreshClientesList === "function") {
-        window.refreshClientesList();
-        refreshed = true;
-      }
-      if (refreshed) return;
-
-      window.location.reload();
     }
 
     const form = qs("#formLancarPagamento");
+
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+
+      if (form.dataset.submitting === "1") return;
+      form.dataset.submitting = "1";
+
+      const btnSubmit = modal.querySelector(`[data-pay="btn_submit"]`);
+      if (btnSubmit) {
+        btnSubmit.disabled = true;
+        btnSubmit.dataset.oldText = btnSubmit.textContent || "";
+        btnSubmit.textContent = "Salvando...";
+      }
 
       try {
         const tipoSel = modal.querySelector(`[data-pay="tipo_pagamento"]`);
@@ -355,16 +347,24 @@
           return;
         }
 
+        // fecha + toast
         GestorModal.close("modalLancarPagamento");
         onSuccess("Pagamento lançado!");
 
-        setTimeout(() => {
-          afterSuccessReturnFlow();
-        }, 120);
+        // ✅ chama retorno UMA vez no próximo frame (mais estável que timeout)
+        requestAnimationFrame(() => afterSuccessReturnFlowOnce());
 
       } catch (err) {
         console.error(err);
         onError("Erro de conexão com o servidor");
+      } finally {
+        form.dataset.submitting = "0";
+
+        if (btnSubmit) {
+          btnSubmit.disabled = false;
+          const old = btnSubmit.dataset.oldText || "Confirmar pagamento";
+          btnSubmit.textContent = old;
+        }
       }
     });
 
@@ -375,6 +375,9 @@
   function openLancarPagamento(openEl) {
     const modal = document.getElementById("modalLancarPagamento");
     if (!modal) return;
+
+    // reset por abertura
+    modal.dataset.didReturn = "0";
 
     closeAnyOpenModal();
 
@@ -459,7 +462,6 @@
 
         const c = calcValoresEmprestimo(emp, pagamentos);
 
-        // ✅ guarda tipo de vencimento para o hint da quitação
         modal.dataset.tipoV = String(c.tipoV || "").toUpperCase();
 
         const semJuros = money(emp.valor_principal);
@@ -470,14 +472,12 @@
           <div><strong>Total c/ juros:</strong> ${comJuros}</div>
           <div><strong>Parcelas:</strong> ${pagas}/${qtdTotal}</div>
         `;
-
         setPay("emprestimo_info", infoCompleto);
 
         modal.dataset.prestacao = String(c.prestacao);
         modal.dataset.jurosPrestacao = String(c.jurosPrestacao);
         modal.dataset.saldoQuitacao = String(c.saldoQuitacao);
 
-        // ✅ sugestão de quitação correta
         const quitNova = calcQuitacaoNova(emp, parcelasArr, pagamentos);
         modal.dataset.quitacaoNova = String(quitNova);
 
@@ -538,8 +538,56 @@
             new Date().toISOString().slice(0, 10);
         }
 
+        // ====== AVISO: PAGAMENTO COM ATRASO ======
+        const hintEl = modal.querySelector(`[data-pay="hint"]`);
+
+        function isAfterISO(a, b) {
+          const aa = String(a || "").slice(0, 10);
+          const bb = String(b || "").slice(0, 10);
+          if (!aa || !bb) return false;
+          return aa > bb;
+        }
+
+        function getParcelaAlvoParaAtraso() {
+          const tipoAtual = String(modal.dataset.currentTipo || "").toUpperCase();
+          if (tipoAtual !== "PARCELA") return null;
+
+          const parcelaHidden = modal.querySelector(`[data-pay="parcela_id"]`);
+          const pid = parcelaHidden ? String(parcelaHidden.value || "") : "";
+          if (pid) {
+            const p = getParcelaById(pid);
+            if (p) return p;
+          }
+          return nextParcelaAberta();
+        }
+
+        function renderAvisoAtraso() {
+          if (!hintEl) return;
+          const base = String(hintEl.dataset.baseHint || "");
+
+          const tipoAtual = String(modal.dataset.currentTipo || "").toUpperCase();
+          const alvo = getParcelaAlvoParaAtraso();
+          const venc = parcelaVencimentoYMD(alvo);
+          const pag = String(dataPagamentoInput?.value || "").slice(0, 10);
+
+          const mostrar = (tipoAtual === "PARCELA") && venc && pag && isAfterISO(pag, venc);
+
+          hintEl.textContent = mostrar
+            ? (base ? `${base} • ⚠️ Pagamento com atraso` : "⚠️ Pagamento com atraso")
+            : base;
+        }
+
+        if (dataPagamentoInput && dataPagamentoInput.dataset.atrasoBound !== "1") {
+          dataPagamentoInput.dataset.atrasoBound = "1";
+          dataPagamentoInput.addEventListener("change", renderAvisoAtraso);
+          dataPagamentoInput.addEventListener("input", renderAvisoAtraso);
+        }
+        // ====== /AVISO ATRASO ======
+
         function applyTipo(tipo) {
           const t = String(tipo || "").toUpperCase();
+          modal.dataset.currentTipo = t;
+
           const prest = toNumber(modal.dataset.prestacao);
           const juros = toNumber(modal.dataset.jurosPrestacao);
           const saldo = toNumber(modal.dataset.saldoQuitacao);
@@ -574,7 +622,6 @@
 
             const pid = parcelaHidden ? parcelaHidden.value : "";
             if (pid) alvo = getParcelaById(pid);
-
             if (!alvo) alvo = nextParcelaAberta();
 
             const sugestao = alvo ? parcelaRestante(alvo) : prest;
@@ -583,17 +630,18 @@
             setHint(`Prestação sugerida: ${money(sugestao)}${alvo ? ` (parcela ${alvo.numero_parcela ?? alvo.numeroParcela ?? "?"})` : ""}`);
 
             syncDataPagamentoComVencimento(alvo);
+            renderAvisoAtraso();
 
           } else if (t === "JUROS") {
             setPay("valor_pago", formatMoneyInputBR(juros));
             setHint(`Juros desta prestação: ${money(juros)}`);
 
             syncDataPagamentoComVencimento(parcelaAlvoData);
+            renderAvisoAtraso();
 
           } else if (t === "QUITACAO") {
             setPay("valor_pago", formatMoneyInputBR(quitNovaNum));
 
-            // ✅ Hint correto por tipo
             if (tipoV === "DIARIO" || tipoV === "SEMANAL") {
               setHint(`Quitação = Total C/Juros.`);
             } else {
@@ -603,6 +651,7 @@
             if (valorInput) valorInput.readOnly = true;
 
             syncDataPagamentoComVencimento(parcelaAlvoData);
+            renderAvisoAtraso();
 
           } else if (t === "INTEGRAL") {
             setPay("valor_pago", formatMoneyInputBR(saldo));
@@ -610,18 +659,21 @@
             if (valorInput) valorInput.readOnly = true;
 
             syncDataPagamentoComVencimento(parcelaAlvoData);
+            renderAvisoAtraso();
 
           } else if (t === "EXTRA") {
             setPay("valor_pago", "");
-            setHint(`Valor parcial (preencha manualmente).`);
+            setHint(`Multa (preencha manualmente).`);
 
             syncDataPagamentoComVencimento(parcelaAlvoData);
+            renderAvisoAtraso();
 
           } else {
             setPay("valor_pago", "");
             setHint("");
 
             syncDataPagamentoComVencimento(parcelaAlvoData);
+            renderAvisoAtraso();
           }
         }
 

@@ -1,4 +1,14 @@
 <?php
+session_start();
+$currentFile = basename($_SERVER['PHP_SELF']);
+
+if ($currentFile !== 'login.php') {
+    if (empty($_SESSION['user'])) {
+        header('Location: /KRAx/app/views/login.php');
+        exit;
+    }
+}
+
 // defaults de segurança
 $activePage = $activePage ?? '';
 $pageTitle  = $pageTitle  ?? 'GestorPro';
@@ -52,6 +62,7 @@ $pageCss    = $pageCss    ?? [];
   </nav>
 
   <div class="topbar__right">
+    <a class="btn" href="/KRAx/public/api.php?route=auth/logout">Sair</a>
     <button class="btn btn--primary" type="button" data-modal-open="novoEmprestimo">
       + Novo empréstimo
     </button>

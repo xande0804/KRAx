@@ -100,7 +100,47 @@
     return aa < bb;
   }
 
-  function calcSituacaoParcela(p, isQuitado, hojeStr) {
+  function isAfterISO(a, b) {
+    const aa = onlyDate(a);
+    const bb = onlyDate(b);
+    if (!aa || !bb) return false;
+    return aa > bb;
+  }
+
+  function getParcelaId(p) {
+    return Number(p?.id ?? p?.parcela_id ?? 0) || 0;
+  }
+
+  // ✅ monta mapa: parcela_id -> MAIOR data_pagamento (PARCELA)
+  // + fallback de quitação: maior data_pagamento (QUITACAO/INTEGRAL) com parcela_id null
+  function buildPagamentoMaps(pagamentos) {
+    const mapParcelaMaxDate = new Map(); // parcelaId -> 'YYYY-MM-DD'
+    let quitacaoFallbackDate = ""; // maior entre QUITACAO/INTEGRAL (parcela_id null)
+
+    const arr = Array.isArray(pagamentos) ? pagamentos : [];
+    for (const pg of arr) {
+      const tipo = String(pg.tipo_pagamento || pg.tipo || "").trim().toUpperCase();
+      const dt = onlyDate(pg.data_pagamento || pg.data || "");
+      if (!dt) continue;
+
+      const pid = Number(pg.parcela_id ?? pg.parcelaId ?? pg.parcela ?? 0) || 0;
+
+      if (pid && tipo === "PARCELA") {
+        const cur = mapParcelaMaxDate.get(pid) || "";
+        if (!cur || dt > cur) mapParcelaMaxDate.set(pid, dt);
+        continue;
+      }
+
+      // QUITACAO/INTEGRAL geralmente vem com parcela_id = null no seu backend
+      if (!pid && (tipo === "QUITACAO" || tipo === "INTEGRAL")) {
+        if (!quitacaoFallbackDate || dt > quitacaoFallbackDate) quitacaoFallbackDate = dt;
+      }
+    }
+
+    return { mapParcelaMaxDate, quitacaoFallbackDate };
+  }
+
+  function calcSituacaoParcela(p, isQuitado, hojeStr, pgMaps) {
     const stp = String(p.status || p.parcela_status || "").trim().toUpperCase();
     const valorParcela = toNumber(p.valor_parcela ?? p.valorParcela ?? 0);
     const valorPago = toNumber(p.valor_pago ?? p.valorPago ?? 0);
@@ -118,17 +158,43 @@
     const vencidaPorData = !isQuitado && vencISO && isBeforeISO(vencISO, hojeStr);
 
     const isAtrasadaReal = vencidaPorData && !isPagaReal;
-    const isPagaAtrasada = isPagaReal && vencidaPorData;
+
+    // ✅ PAGA (ATRASADA) = data_pagamento REAL > data_vencimento
+    const pid = getParcelaId(p);
+
+    let pagoEmISO = "";
+    if (pgMaps && pgMaps.mapParcelaMaxDate && pid) {
+      pagoEmISO = pgMaps.mapParcelaMaxDate.get(pid) || "";
+    }
+
+    // fallback: se foi quitado/integral e a parcela ficou QUITADA sem pagamento por parcela_id
+    if (!pagoEmISO && pgMaps && pgMaps.quitacaoFallbackDate) {
+      // só faz sentido se a parcela está paga/quitada
+      if (isPagaReal) pagoEmISO = pgMaps.quitacaoFallbackDate;
+    }
+
+    const isPagaAtrasada = !!(isPagaReal && vencISO && pagoEmISO && isAfterISO(pagoEmISO, vencISO));
 
     const restanteC = Math.max(0, vparC - vpC);
 
-    return { stp, valorParcela, valorPago, isPagaReal, isParcial, isAtrasadaReal, isPagaAtrasada, vencISO, restanteC };
+    return {
+      stp,
+      valorParcela,
+      valorPago,
+      isPagaReal,
+      isParcial,
+      isAtrasadaReal,
+      isPagaAtrasada,
+      vencISO,
+      restanteC,
+      pagoEmISO
+    };
   }
 
-  function getNextParcelaAberta(parcelas, isQuitado, hojeStr) {
+  function getNextParcelaAberta(parcelas, isQuitado, hojeStr, pgMaps) {
     if (!Array.isArray(parcelas) || !parcelas.length) return null;
     const abertas = parcelas.filter(p => {
-      const s = calcSituacaoParcela(p, isQuitado, hojeStr);
+      const s = calcSituacaoParcela(p, isQuitado, hojeStr, pgMaps);
       return !s.isPagaReal && (s.isParcial || s.restanteC > 0);
     });
     if (!abertas.length) return null;
@@ -348,6 +414,8 @@
       const parcelas = Array.isArray(dados.parcelas) ? dados.parcelas : [];
       const pagamentos = Array.isArray(dados.pagamentos) ? dados.pagamentos : [];
 
+      const pgMaps = buildPagamentoMaps(pagamentos);
+
       const hojeStr = todayISO();
 
       const statusAtual = String(emp.status || "").trim().toUpperCase();
@@ -383,7 +451,7 @@
         valorPrestacaoC = Math.round(totalComJurosC / totalParcelas);
       }
 
-      // ✅ SETA OS KPIs (isso evita ficar "—")
+      // ✅ SETA OS KPIs
       set("valor", moneyFromCents(principalC));
       set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
@@ -409,7 +477,7 @@
       // parcelas pagas
       let pagas = 0;
       if (isQuitado) pagas = totalParcelas;
-      else pagas = parcelas.filter((p) => calcSituacaoParcela(p, false, hojeStr).isPagaReal).length;
+      else pagas = parcelas.filter((p) => calcSituacaoParcela(p, false, hojeStr, pgMaps).isPagaReal).length;
       set("parcelas", `${pagas} / ${totalParcelas || 0}`);
 
       const st = statusBadge(emp.status);
@@ -436,7 +504,7 @@
         if (btnEdit) btnEdit.style.display = "";
       }
 
-      const nextAberta = getNextParcelaAberta(parcelas, isQuitado, hojeStr);
+      const nextAberta = getNextParcelaAberta(parcelas, isQuitado, hojeStr, pgMaps);
       const nextParcelaId = nextAberta ? String(nextAberta.id ?? nextAberta.parcela_id ?? "") : "";
       const nextVencISO = nextAberta ? onlyDate(nextAberta.data_vencimento ?? nextAberta.dataVencimento) : "";
 
@@ -542,7 +610,7 @@
             const vencISO = onlyDate(p.data_vencimento ?? p.dataVencimento);
             const vencBR = formatDateBR(vencISO);
 
-            const s = calcSituacaoParcela(p, isQuitado, hojeStr);
+            const s = calcSituacaoParcela(p, isQuitado, hojeStr, pgMaps);
 
             let valTxt = "—";
             if (s.isParcial) {

@@ -1,4 +1,5 @@
 <?php
+
 $activePage = 'inicio';
 $pageTitle  = 'GestorPro • Início';
 
