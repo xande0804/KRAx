@@ -10,6 +10,95 @@
   }
 
   // =========================
+  // Helpers (money/date)
+  // =========================
+  function toNumber(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  // ✅ pt-BR: "1.234,56" -> 1234.56
+  function parseMoneyBR(str) {
+    const s0 = String(str ?? "").trim();
+    if (!s0) return 0;
+    let s = s0.replace(/R\$\s?/g, "");
+    s = s.replace(/\./g, "").replace(",", ".");
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function moneyBR(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+
+  function fmtDateBR(iso) {
+    const s = String(iso || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return "—";
+    const [y, m, d] = s.split("-");
+    return `${d}/${m}/${y}`;
+  }
+
+  function addDaysISO(iso, days) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return "";
+    const [y, m, d] = iso.split("-").map((x) => Number(x));
+    const dt = new Date(y, m - 1, d);
+    dt.setDate(dt.getDate() + Number(days || 0));
+    const yy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  function addMonthsISO(iso, months) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return "";
+    const [y, m, d] = iso.split("-").map((x) => Number(x));
+    const dt = new Date(y, m - 1, d);
+    const targetMonth = dt.getMonth() + Number(months || 0);
+    // preserva dia o máximo possível
+    dt.setMonth(targetMonth);
+    const yy = dt.getFullYear();
+    const mm = String(dt.getMonth() + 1).padStart(2, "0");
+    const dd = String(dt.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+
+  // weekday: 1..6 (Seg..Sáb). Retorna próxima data >= base+minDays que cai no weekday.
+  function nextWeekdayISO(baseISO, weekday1to6, minDaysAhead) {
+    const base = String(baseISO || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return "";
+    const wd = Math.min(6, Math.max(1, toNumber(weekday1to6)));
+    const minAhead = Math.max(0, toNumber(minDaysAhead));
+
+    const [y, m, d] = base.split("-").map((x) => Number(x));
+    const start = new Date(y, m - 1, d);
+    start.setDate(start.getDate() + minAhead);
+
+    // JS: 0=Dom,1=Seg...6=Sáb. Nós queremos 1..6 (Seg..Sáb).
+    const target = wd; // 1..6
+    let dt = new Date(start.getTime());
+    for (let i = 0; i < 14; i++) {
+      const jsDay = dt.getDay(); // 0..6
+      if (jsDay === target) {
+        const yy = dt.getFullYear();
+        const mm = String(dt.getMonth() + 1).padStart(2, "0");
+        const dd = String(dt.getDate()).padStart(2, "0");
+        return `${yy}-${mm}-${dd}`;
+      }
+      dt.setDate(dt.getDate() + 1);
+    }
+    return "";
+  }
+
+  function tipoLabel(tipo) {
+    const t = String(tipo || "").toUpperCase();
+    if (t === "SEMANAL") return "Semanal";
+    if (t === "MENSAL") return "Mensal";
+    return "Diário";
+  }
+
+  // =========================
   // Autocomplete state/cache
   // =========================
   let clientesCache = null; // [{id:"", nome:""}, ...]
@@ -168,6 +257,49 @@
               <input type="number" min="0" step="0.01" name="porcentagem_juros" value="30" required />
             </div>
 
+            <!-- ✅ SIMULAÇÃO (fica na área que você destacou ao lado do Juros) -->
+            <div class="field form-span-2" style="margin-top:-2px;">
+              <div class="simcard" id="simCardNovoEmprestimo">
+                <div class="simcard__title">Simulação</div>
+
+                <div class="simgrid">
+                  <div class="simitem">
+                    <div class="simlabel">Tipo</div>
+                    <div class="simvalue" id="simTipo">—</div>
+                  </div>
+                  <div class="simitem">
+                    <div class="simlabel">Parcelas</div>
+                    <div class="simvalue" id="simParcelas">—</div>
+                  </div>
+
+                  <div class="simitem">
+                    <div class="simlabel">Juros (R$)</div>
+                    <div class="simvalue" id="simJurosValor">—</div>
+                  </div>
+                  <div class="simitem">
+                    <div class="simlabel">Total com juros</div>
+                    <div class="simvalue" id="simTotal">—</div>
+                  </div>
+
+                  <div class="simitem simitem--span2">
+                    <div class="simlabel">Parcela estimada</div>
+                    <div class="simvalue simvalue--big" id="simParcela">—</div>
+                  </div>
+
+                  <div class="simitem">
+                    <div class="simlabel">1º venc.</div>
+                    <div class="simvalue" id="simPrimeiroVenc">—</div>
+                  </div>
+                  <div class="simitem">
+                    <div class="simlabel">Último venc.</div>
+                    <div class="simvalue" id="simUltimoVenc">—</div>
+                  </div>
+                </div>
+
+                <div class="simhint" id="simHint">Preencha valor, juros, parcelas e tipo.</div>
+              </div>
+            </div>
+
             <div class="field form-span-2">
               <label>Tipo de vencimento</label>
               <select name="tipo_vencimento" required id="tipoVencimentoNovoEmprestimo">
@@ -186,9 +318,23 @@
 
           </div>
 
-          <footer class="modal__footer modal__footer--end">
-            <button class="btn" type="button" data-modal-close="modalNovoEmprestimo">Cancelar</button>
-            <button class="btn btn--primary" type="submit" id="btnSubmitNovoEmprestimo">Salvar empréstimo</button>
+          <!-- ✅ Footer com resumo à esquerda (área inferior que você destacou) -->
+          <footer class="modal__footer" style="display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+            <div class="simfooter" id="simFooterNovoEmprestimo">
+              <div class="simfooter__line">
+                <span class="simfooter__k">Total:</span>
+                <span class="simfooter__v" id="simFooterTotal">—</span>
+                <span class="simfooter__sep">•</span>
+                <span class="simfooter__k">Parcela:</span>
+                <span class="simfooter__v" id="simFooterParcela">—</span>
+              </div>
+              <div class="simfooter__sub" id="simFooterSub">—</div>
+            </div>
+
+            <div class="modal__footer__actions" style="display:flex; gap:10px; align-items:center; justify-content:flex-end;">
+              <button class="btn" type="button" data-modal-close="modalNovoEmprestimo">Cancelar</button>
+              <button class="btn btn--primary" type="submit" id="btnSubmitNovoEmprestimo">Salvar empréstimo</button>
+            </div>
           </footer>
         </form>
       </div>
@@ -197,24 +343,82 @@
     document.body.appendChild(modal);
 
     // =========================
-    // CSS mínimo pro "X" (inline safe)
-    // (o restante do autocomplete vai no CSS global que te passei)
+    // CSS mínimo pro "X" + Simulação (inline safe)
     // =========================
-    const clearBtn = modal.querySelector("#clienteClearBtn");
-    if (clearBtn) {
-      clearBtn.style.position = "absolute";
-      clearBtn.style.right = "10px";
-      clearBtn.style.top = "50%";
-      clearBtn.style.transform = "translateY(-50%)";
-      clearBtn.style.width = "28px";
-      clearBtn.style.height = "28px";
-      clearBtn.style.borderRadius = "999px";
-      clearBtn.style.border = "1px solid #e6e8ef";
-      clearBtn.style.background = "#fff";
-      clearBtn.style.cursor = "pointer";
-      clearBtn.style.lineHeight = "26px";
-      clearBtn.style.fontSize = "18px";
-      clearBtn.style.padding = "0";
+    const styleId = "novoEmprestimoSimStyle";
+    if (!document.getElementById(styleId)) {
+      const st = document.createElement("style");
+      st.id = styleId;
+      st.textContent = `
+        /* botão X do cliente */
+        #modalNovoEmprestimo #clienteClearBtn{ position:absolute; right:10px; top:50%; transform:translateY(-50%);
+          width:28px; height:28px; border-radius:999px; border:1px solid #e6e8ef; background:#fff;
+          cursor:pointer; line-height:26px; font-size:18px; padding:0; }
+
+        /* Simulação */
+        #modalNovoEmprestimo .simcard{
+          border: 1px solid #e6e8ef;
+          background: #fff;
+          border-radius: 14px;
+          padding: 12px 12px;
+          box-shadow: 0 1px 0 rgba(0,0,0,.02);
+        }
+        #modalNovoEmprestimo .simcard__title{
+          font-weight: 700;
+          font-size: 13px;
+          margin-bottom: 10px;
+          letter-spacing: .2px;
+        }
+        #modalNovoEmprestimo .simgrid{
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px 12px;
+          align-items: start;
+        }
+        #modalNovoEmprestimo .simitem{
+          padding: 10px 10px;
+          border-radius: 12px;
+          background: #f7f8fb;
+          border: 1px solid #eef0f6;
+        }
+        #modalNovoEmprestimo .simitem--span2{ grid-column: 1 / -1; }
+        #modalNovoEmprestimo .simlabel{
+          font-size: 12px;
+          color: #6b7280;
+          margin-bottom: 4px;
+        }
+        #modalNovoEmprestimo .simvalue{
+          font-weight: 700;
+          font-size: 14px;
+          color: #111827;
+        }
+        #modalNovoEmprestimo .simvalue--big{
+          font-size: 18px;
+          letter-spacing: .2px;
+        }
+        #modalNovoEmprestimo .simhint{
+          margin-top: 10px;
+          font-size: 12px;
+          color: #6b7280;
+        }
+
+        /* Footer resumo */
+        #modalNovoEmprestimo .simfooter{
+          min-width: 240px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        #modalNovoEmprestimo .simfooter__line{
+          display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;
+          font-size: 13px;
+        }
+        #modalNovoEmprestimo .simfooter__k{ color:#6b7280; }
+        #modalNovoEmprestimo .simfooter__v{ font-weight:800; color:#111827; }
+        #modalNovoEmprestimo .simfooter__sep{ color:#c4c7d2; margin:0 2px; }
+        #modalNovoEmprestimo .simfooter__sub{ font-size:12px; color:#6b7280; }
+      `;
+      document.head.appendChild(st);
     }
 
     // =========================
@@ -230,6 +434,156 @@
     const clienteHidden = modal.querySelector("#clienteIdHidden");
     const clienteInput = modal.querySelector("#clienteSearchInput");
     const suggestBox = modal.querySelector("#clienteSuggestBox");
+    const clearBtn = modal.querySelector("#clienteClearBtn");
+
+    // =========================
+    // Simulação (estado + update)
+    // =========================
+    const simEls = {
+      tipo: modal.querySelector("#simTipo"),
+      parcelas: modal.querySelector("#simParcelas"),
+      jurosValor: modal.querySelector("#simJurosValor"),
+      total: modal.querySelector("#simTotal"),
+      parcela: modal.querySelector("#simParcela"),
+      primeiro: modal.querySelector("#simPrimeiroVenc"),
+      ultimo: modal.querySelector("#simUltimoVenc"),
+      hint: modal.querySelector("#simHint"),
+      fTotal: modal.querySelector("#simFooterTotal"),
+      fParcela: modal.querySelector("#simFooterParcela"),
+      fSub: modal.querySelector("#simFooterSub"),
+    };
+
+    function getRegraInfoAtual() {
+      const tipo = String(tipoSel ? tipoSel.value : "DIARIO").toUpperCase();
+      if (tipo === "SEMANAL") {
+        const sel = modal.querySelector('select[name="regra_vencimento"]');
+        return { tipo, regra: sel ? String(sel.value || "") : "" };
+      }
+      const inp = modal.querySelector('input[name="regra_vencimento"][type="date"]');
+      return { tipo, regra: inp ? String(inp.value || "") : "" };
+    }
+
+    function calcSimulacao() {
+      const principal = parseMoneyBR(modal.querySelector('input[name="valor_principal"]')?.value);
+      const qtd = Math.max(1, toNumber(modal.querySelector('input[name="quantidade_parcelas"]')?.value));
+      const jurosPct = Math.max(0, toNumber(modal.querySelector('input[name="porcentagem_juros"]')?.value));
+      const baseData = modal.querySelector('input[name="data_emprestimo"]')?.value || todayISO();
+      const { tipo, regra } = getRegraInfoAtual();
+
+      // cálculo simples (simulação visual):
+      const jurosValor = principal * (jurosPct / 100);
+      const total = principal + jurosValor;
+      const parcela = qtd > 0 ? (total / qtd) : total;
+
+      // vencimentos estimados
+      let primeiroISO = "";
+      if (tipo === "SEMANAL") {
+        // regra: 1..6 (Seg..Sáb). Hint do sistema fala "mínimo 7 dias"
+        primeiroISO = nextWeekdayISO(baseData, regra, 7);
+      } else {
+        primeiroISO = String(regra || "");
+        if (primeiroISO && baseData && primeiroISO < baseData) {
+          primeiroISO = baseData;
+        }
+        if (!primeiroISO) primeiroISO = baseData;
+      }
+
+      let ultimoISO = "";
+      if (primeiroISO) {
+        if (tipo === "DIARIO") ultimoISO = addDaysISO(primeiroISO, qtd - 1);
+        else if (tipo === "MENSAL") ultimoISO = addMonthsISO(primeiroISO, qtd - 1);
+        else if (tipo === "SEMANAL") ultimoISO = addDaysISO(primeiroISO, 7 * (qtd - 1));
+      }
+
+      return {
+        principal,
+        qtd,
+        jurosPct,
+        jurosValor,
+        total,
+        parcela,
+        tipo,
+        baseData,
+        primeiroISO,
+        ultimoISO
+      };
+    }
+
+    function updateSimUI() {
+      const s = calcSimulacao();
+
+      if (simEls.tipo) simEls.tipo.textContent = tipoLabel(s.tipo);
+      if (simEls.parcelas) simEls.parcelas.textContent = `${s.qtd}x`;
+      if (simEls.jurosValor) simEls.jurosValor.textContent = moneyBR(s.jurosValor);
+      if (simEls.total) simEls.total.textContent = moneyBR(s.total);
+      if (simEls.parcela) simEls.parcela.textContent = moneyBR(s.parcela);
+
+      if (simEls.primeiro) simEls.primeiro.textContent = s.primeiroISO ? fmtDateBR(s.primeiroISO) : "—";
+      if (simEls.ultimo) simEls.ultimo.textContent = s.ultimoISO ? fmtDateBR(s.ultimoISO) : "—";
+
+      if (simEls.fTotal) simEls.fTotal.textContent = moneyBR(s.total);
+      if (simEls.fParcela) simEls.fParcela.textContent = moneyBR(s.parcela);
+
+      const pronto = s.principal > 0 && s.qtd >= 1;
+      const sub = pronto
+        ? `Base: ${moneyBR(s.principal)} • Juros: ${s.jurosPct.toLocaleString("pt-BR")}%
+           • ${tipoLabel(s.tipo)} • 1º: ${s.primeiroISO ? fmtDateBR(s.primeiroISO) : "—"}`
+            .replace(/\s+/g, " ")
+            .trim()
+        : "Preencha valor, juros, parcelas e tipo para ver a simulação.";
+
+      if (simEls.fSub) simEls.fSub.textContent = sub;
+      if (simEls.hint) simEls.hint.textContent = pronto
+        ? "Valores estimados (simulação visual). O cálculo final segue a regra do sistema."
+        : "Preencha valor, juros, parcelas e tipo.";
+    }
+
+    // Debounce simples (pra não recalcular 300x digitando)
+    let simRAF = 0;
+    function scheduleSimUpdate() {
+      if (simRAF) cancelAnimationFrame(simRAF);
+      simRAF = requestAnimationFrame(() => {
+        simRAF = 0;
+        updateSimUI();
+      });
+    }
+
+    // listeners únicos via delegação (pegam campos re-renderizados)
+    if (form && !form.dataset.simBound) {
+      form.dataset.simBound = "1";
+      form.addEventListener("input", (e) => {
+        const t = e.target;
+        if (!t) return;
+        const name = t.getAttribute("name") || "";
+        const id = t.id || "";
+        if (
+          name === "valor_principal" ||
+          name === "quantidade_parcelas" ||
+          name === "porcentagem_juros" ||
+          name === "tipo_vencimento" ||
+          name === "regra_vencimento" ||
+          name === "data_emprestimo" ||
+          id === "tipoVencimentoNovoEmprestimo"
+        ) {
+          scheduleSimUpdate();
+        }
+      });
+
+      form.addEventListener("change", (e) => {
+        const t = e.target;
+        if (!t) return;
+        const name = t.getAttribute("name") || "";
+        const id = t.id || "";
+        if (
+          name === "tipo_vencimento" ||
+          name === "regra_vencimento" ||
+          name === "data_emprestimo" ||
+          id === "tipoVencimentoNovoEmprestimo"
+        ) {
+          scheduleSimUpdate();
+        }
+      });
+    }
 
     // =========================
     // Regra vencimento dinâmica
@@ -284,6 +638,9 @@
           : "Escolha a data do primeiro vencimento. As próximas parcelas serão dia a dia."
         );
       }
+
+      // sempre que re-renderiza, atualiza simulação
+      scheduleSimUpdate();
     }
 
     if (tipoSel) tipoSel.addEventListener("change", renderRegraField);
@@ -296,6 +653,7 @@
           dateEl.min = base;
           if (!dateEl.value || dateEl.value < base) dateEl.value = base;
         }
+        scheduleSimUpdate();
       });
     }
 
@@ -536,6 +894,7 @@
     if (inputData && !inputData.value) inputData.value = todayISO();
 
     renderRegraField();
+    scheduleSimUpdate(); // ✅ já mostra simulação (mesmo que vazia)
   }
 
   // ✅ PADRÃO CERTO: recebe payload { clienteId, clienteNome }
@@ -596,6 +955,13 @@
     if (tipoSel) {
       const ev = new Event('change', { bubbles: true });
       tipoSel.dispatchEvent(ev);
+    }
+
+    // atualiza simulação ao abrir
+    const form = modal.querySelector("#formNovoEmprestimo");
+    if (form) {
+      const ev2 = new Event("input", { bubbles: true });
+      form.dispatchEvent(ev2);
     }
 
     GestorModal.open("modalNovoEmprestimo");
