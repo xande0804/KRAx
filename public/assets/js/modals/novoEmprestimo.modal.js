@@ -55,9 +55,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return "";
     const [y, m, d] = iso.split("-").map((x) => Number(x));
     const dt = new Date(y, m - 1, d);
-    const targetMonth = dt.getMonth() + Number(months || 0);
-    // preserva dia o máximo possível
-    dt.setMonth(targetMonth);
+    dt.setMonth(dt.getMonth() + Number(months || 0));
     const yy = dt.getFullYear();
     const mm = String(dt.getMonth() + 1).padStart(2, "0");
     const dd = String(dt.getDate()).padStart(2, "0");
@@ -75,12 +73,10 @@
     const start = new Date(y, m - 1, d);
     start.setDate(start.getDate() + minAhead);
 
-    // JS: 0=Dom,1=Seg...6=Sáb. Nós queremos 1..6 (Seg..Sáb).
-    const target = wd; // 1..6
+    const target = wd; // 1..6 (Seg..Sáb)
     let dt = new Date(start.getTime());
     for (let i = 0; i < 14; i++) {
-      const jsDay = dt.getDay(); // 0..6
-      if (jsDay === target) {
+      if (dt.getDay() === target) {
         const yy = dt.getFullYear();
         const mm = String(dt.getMonth() + 1).padStart(2, "0");
         const dd = String(dt.getDate()).padStart(2, "0");
@@ -91,17 +87,43 @@
     return "";
   }
 
-  function tipoLabel(tipo) {
-    const t = String(tipo || "").toUpperCase();
-    if (t === "SEMANAL") return "Semanal";
-    if (t === "MENSAL") return "Mensal";
-    return "Diário";
+  // =========================
+  // ✅ SIMULAÇÃO 100% IGUAL AO BACKEND
+  // - MENSAL: total = principal + (principal * juros%) * qtd
+  // - DIARIO/SEMANAL: total = principal * (1 + juros%)
+  // - divide em centavos e resto vai na última parcela
+  // =========================
+  function calcParcelasLikeBackend(principal, jurosPct, qtd, tipoV) {
+    const P = Math.max(0, Number(principal) || 0);
+    const n = Math.max(1, Number(qtd) || 1);
+    const p = Math.max(0, Number(jurosPct) || 0) / 100;
+    const tipo = String(tipoV || "").toUpperCase();
+
+    if (P <= 0) return { total: 0, baseParcela: 0, ultimaParcela: 0 };
+
+    let totalComJuros = 0;
+    if (tipo === "MENSAL") {
+      const jurosInteiro = P * p;
+      totalComJuros = P + (jurosInteiro * n);
+    } else {
+      totalComJuros = P * (1 + p);
+    }
+
+    const totalC = Math.round(totalComJuros * 100);
+    const baseC = Math.floor(totalC / n);
+    const restoC = totalC - (baseC * n);
+
+    return {
+      total: totalC / 100,
+      baseParcela: baseC / 100,
+      ultimaParcela: (baseC + restoC) / 100,
+    };
   }
 
   // =========================
   // Autocomplete state/cache
   // =========================
-  let clientesCache = null; // [{id:"", nome:""}, ...]
+  let clientesCache = null;
   let acActiveIndex = -1;
 
   function escHtml(s) {
@@ -116,21 +138,17 @@
   function normalizeTxt(s) {
     return String(s ?? "")
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "") // remove acentos
+      .replace(/[\u0300-\u036f]/g, "")
       .toLowerCase()
       .trim();
   }
 
-  // ✅ Highlight 100% correto ignorando acentos:
-  // cria uma string normalizada + um mapa de posições (cada char normalizado aponta pro índice no original)
   function buildNormalizedMap(original) {
     const src = String(original ?? "");
     let norm = "";
-    const map = []; // map[normIndex] = originalIndex
-
+    const map = [];
     for (let i = 0; i < src.length; i++) {
       const ch = src[i];
-      // NFD separa diacríticos; removemos diacríticos; pode virar 0..N chars
       const base = ch.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
       for (let k = 0; k < base.length; k++) {
         norm += base[k].toLowerCase();
@@ -150,7 +168,7 @@
     if (idx < 0) return escHtml(raw);
 
     const startOrig = map[idx];
-    const endOrig = map[idx + q.length - 1] + 1; // +1 pra cortar corretamente
+    const endOrig = map[idx + q.length - 1] + 1;
 
     const a = src.slice(0, startOrig);
     const b = src.slice(startOrig, endOrig);
@@ -165,7 +183,6 @@
     try {
       const res = await fetch(`/KRAx/public/api.php?route=clientes/listar`);
       const json = await res.json();
-
       if (!json.ok) throw new Error(json.mensagem || "Erro ao carregar clientes");
 
       const lista = Array.isArray(json.dados) ? json.dados : [];
@@ -173,7 +190,6 @@
         .map((c) => ({ id: String(c.id), nome: String(c.nome || "") }))
         .filter((c) => c.id && c.nome);
 
-      // ordenação alfabética pt-BR (ignorando acentos)
       clientesCache.sort((a, b) =>
         a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" })
       );
@@ -206,7 +222,7 @@
         </header>
 
         <form class="modal__body" id="formNovoEmprestimo" action="/KRAx/public/api.php?route=emprestimos/criar" method="post">
-          <div class="form-grid">
+          <div class="form-grid form-grid--3">
 
             <!-- ✅ CLIENTE (Autocomplete) -->
             <div class="field form-span-2" style="position:relative;">
@@ -242,6 +258,7 @@
               <input type="date" name="data_emprestimo" required />
             </div>
 
+            <!-- ✅ mesma linha: Valor, Parcelas, Juros -->
             <div class="field">
               <label>Valor (R$)</label>
               <input name="valor_principal" inputmode="decimal" placeholder="0,00" required />
@@ -257,46 +274,19 @@
               <input type="number" min="0" step="0.01" name="porcentagem_juros" value="30" required />
             </div>
 
-            <!-- ✅ SIMULAÇÃO (fica na área que você destacou ao lado do Juros) -->
-            <div class="field form-span-2" style="margin-top:-2px;">
-              <div class="simcard" id="simCardNovoEmprestimo">
-                <div class="simcard__title">Simulação</div>
-
-                <div class="simgrid">
-                  <div class="simitem">
-                    <div class="simlabel">Tipo</div>
-                    <div class="simvalue" id="simTipo">—</div>
-                  </div>
-                  <div class="simitem">
-                    <div class="simlabel">Parcelas</div>
-                    <div class="simvalue" id="simParcelas">—</div>
-                  </div>
-
-                  <div class="simitem">
-                    <div class="simlabel">Juros (R$)</div>
-                    <div class="simvalue" id="simJurosValor">—</div>
-                  </div>
-                  <div class="simitem">
-                    <div class="simlabel">Total com juros</div>
-                    <div class="simvalue" id="simTotal">—</div>
-                  </div>
-
-                  <div class="simitem simitem--span2">
-                    <div class="simlabel">Parcela estimada</div>
-                    <div class="simvalue simvalue--big" id="simParcela">—</div>
-                  </div>
-
-                  <div class="simitem">
-                    <div class="simlabel">1º venc.</div>
-                    <div class="simvalue" id="simPrimeiroVenc">—</div>
-                  </div>
-                  <div class="simitem">
-                    <div class="simlabel">Último venc.</div>
-                    <div class="simvalue" id="simUltimoVenc">—</div>
-                  </div>
+            <!-- ✅ simulação logo abaixo (1 linha só) -->
+            <div class="field form-span-2">
+              <div class="simbox" id="simLineNovoEmprestimo" title="Simulação">
+                <div class="simline">
+                  <span class="simtitle">Simulação:</span>
+                  <span class="simitem"><span class="simk">1º</span> <span class="simv" id="simPrimeiroVenc">—</span></span>
+                  <span class="simsep">•</span>
+                  <span class="simitem"><span class="simk">Últ</span> <span class="simv" id="simUltimoVenc">—</span></span>
+                  <span class="simsep">•</span>
+                  <span class="simitem"><span class="simk">Total</span> <span class="simv" id="simTotal">—</span></span>
+                  <span class="simsep">•</span>
+                  <span class="simitem"><span class="simk">Parc</span> <span class="simv" id="simParcela">—</span></span>
                 </div>
-
-                <div class="simhint" id="simHint">Preencha valor, juros, parcelas e tipo.</div>
               </div>
             </div>
 
@@ -310,31 +300,13 @@
             </div>
 
             <!-- ✅ Dinâmico: semanal (1..6) / diário-mensal (date) -->
-            <div class="field form-span-2" id="wrapRegraVencimento">
-              <label id="labelRegraVencimento">Primeiro vencimento</label>
-              <input type="date" name="regra_vencimento" required id="regraVencimentoInput" />
-              <div class="muted" style="margin-top:6px;" id="hintRegraVencimento"></div>
-            </div>
+            <div class="field form-span-2" id="wrapRegraVencimento"></div>
 
           </div>
 
-          <!-- ✅ Footer com resumo à esquerda (área inferior que você destacou) -->
-          <footer class="modal__footer" style="display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-            <div class="simfooter" id="simFooterNovoEmprestimo">
-              <div class="simfooter__line">
-                <span class="simfooter__k">Total:</span>
-                <span class="simfooter__v" id="simFooterTotal">—</span>
-                <span class="simfooter__sep">•</span>
-                <span class="simfooter__k">Parcela:</span>
-                <span class="simfooter__v" id="simFooterParcela">—</span>
-              </div>
-              <div class="simfooter__sub" id="simFooterSub">—</div>
-            </div>
-
-            <div class="modal__footer__actions" style="display:flex; gap:10px; align-items:center; justify-content:flex-end;">
-              <button class="btn" type="button" data-modal-close="modalNovoEmprestimo">Cancelar</button>
-              <button class="btn btn--primary" type="submit" id="btnSubmitNovoEmprestimo">Salvar empréstimo</button>
-            </div>
+          <footer class="modal__footer modal__footer--end">
+            <button class="btn" type="button" data-modal-close="modalNovoEmprestimo">Cancelar</button>
+            <button class="btn btn--primary" type="submit" id="btnSubmitNovoEmprestimo">Salvar empréstimo</button>
           </footer>
         </form>
       </div>
@@ -343,80 +315,70 @@
     document.body.appendChild(modal);
 
     // =========================
-    // CSS mínimo pro "X" + Simulação (inline safe)
+    // CSS mínimo (inline safe)
     // =========================
-    const styleId = "novoEmprestimoSimStyle";
+    const styleId = "novoEmprestimoSimMiniStyle";
     if (!document.getElementById(styleId)) {
       const st = document.createElement("style");
       st.id = styleId;
       st.textContent = `
         /* botão X do cliente */
-        #modalNovoEmprestimo #clienteClearBtn{ position:absolute; right:10px; top:50%; transform:translateY(-50%);
+        #modalNovoEmprestimo #clienteClearBtn{
+          position:absolute; right:10px; top:50%; transform:translateY(-50%);
           width:28px; height:28px; border-radius:999px; border:1px solid #e6e8ef; background:#fff;
-          cursor:pointer; line-height:26px; font-size:18px; padding:0; }
-
-        /* Simulação */
-        #modalNovoEmprestimo .simcard{
-          border: 1px solid #e6e8ef;
-          background: #fff;
-          border-radius: 14px;
-          padding: 12px 12px;
-          box-shadow: 0 1px 0 rgba(0,0,0,.02);
-        }
-        #modalNovoEmprestimo .simcard__title{
-          font-weight: 700;
-          font-size: 13px;
-          margin-bottom: 10px;
-          letter-spacing: .2px;
-        }
-        #modalNovoEmprestimo .simgrid{
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px 12px;
-          align-items: start;
-        }
-        #modalNovoEmprestimo .simitem{
-          padding: 10px 10px;
-          border-radius: 12px;
-          background: #f7f8fb;
-          border: 1px solid #eef0f6;
-        }
-        #modalNovoEmprestimo .simitem--span2{ grid-column: 1 / -1; }
-        #modalNovoEmprestimo .simlabel{
-          font-size: 12px;
-          color: #6b7280;
-          margin-bottom: 4px;
-        }
-        #modalNovoEmprestimo .simvalue{
-          font-weight: 700;
-          font-size: 14px;
-          color: #111827;
-        }
-        #modalNovoEmprestimo .simvalue--big{
-          font-size: 18px;
-          letter-spacing: .2px;
-        }
-        #modalNovoEmprestimo .simhint{
-          margin-top: 10px;
-          font-size: 12px;
-          color: #6b7280;
+          cursor:pointer; line-height:26px; font-size:18px; padding:0;
         }
 
-        /* Footer resumo */
-        #modalNovoEmprestimo .simfooter{
-          min-width: 240px;
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
+        /* ✅ grid 3 colunas fixas (Valor / Parcelas / Juros) */
+        #modalNovoEmprestimo .form-grid--3{
+          display:grid;
+          grid-template-columns: 1.4fr 0.8fr 0.8fr;
+          gap: 12px;
         }
-        #modalNovoEmprestimo .simfooter__line{
-          display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;
-          font-size: 13px;
+
+        /* spans */
+        #modalNovoEmprestimo .form-span-2{
+          grid-column: 1 / -1;
         }
-        #modalNovoEmprestimo .simfooter__k{ color:#6b7280; }
-        #modalNovoEmprestimo .simfooter__v{ font-weight:800; color:#111827; }
-        #modalNovoEmprestimo .simfooter__sep{ color:#c4c7d2; margin:0 2px; }
-        #modalNovoEmprestimo .simfooter__sub{ font-size:12px; color:#6b7280; }
+
+        /* simulação: 1 linha só (sem quebrar) */
+        #modalNovoEmprestimo .simbox{
+          height: 40px;
+          display:flex;
+          align-items:center;
+          padding: 0 10px;
+          border:1px solid #e6e8ef;
+          background:#fff;
+          border-radius:14px;
+          overflow:hidden;
+        }
+        #modalNovoEmprestimo .simline{
+          width:100%;
+          display:block;
+          white-space:nowrap;
+          overflow:hidden;
+          text-overflow:ellipsis;
+          line-height:1;
+        }
+        #modalNovoEmprestimo .simtitle{
+          font-size:12px;
+          font-weight:800;
+          color:#111827;
+          margin-right:8px;
+        }
+        #modalNovoEmprestimo .simsep{ margin: 0 6px; color:#6b7280; }
+        #modalNovoEmprestimo .simk{ font-size:12px; color:#6b7280; }
+        #modalNovoEmprestimo .simv{ font-size:12px; font-weight:800; color:#111827; }
+
+        /* responsivo */
+        @media (max-width: 720px){
+          #modalNovoEmprestimo .form-grid--3{
+            grid-template-columns: 1fr 1fr;
+          }
+          #modalNovoEmprestimo .form-grid--3 .field:nth-of-type(3){
+            grid-column: 1 / -1;
+          }
+        }
       `;
       document.head.appendChild(st);
     }
@@ -436,22 +398,11 @@
     const suggestBox = modal.querySelector("#clienteSuggestBox");
     const clearBtn = modal.querySelector("#clienteClearBtn");
 
-    // =========================
-    // Simulação (estado + update)
-    // =========================
-    const simEls = {
-      tipo: modal.querySelector("#simTipo"),
-      parcelas: modal.querySelector("#simParcelas"),
-      jurosValor: modal.querySelector("#simJurosValor"),
-      total: modal.querySelector("#simTotal"),
-      parcela: modal.querySelector("#simParcela"),
-      primeiro: modal.querySelector("#simPrimeiroVenc"),
-      ultimo: modal.querySelector("#simUltimoVenc"),
-      hint: modal.querySelector("#simHint"),
-      fTotal: modal.querySelector("#simFooterTotal"),
-      fParcela: modal.querySelector("#simFooterParcela"),
-      fSub: modal.querySelector("#simFooterSub"),
-    };
+    // simulação
+    const simPrimeiroEl = modal.querySelector("#simPrimeiroVenc");
+    const simTotalEl = modal.querySelector("#simTotal");
+    const simParcelaEl = modal.querySelector("#simParcela");
+    const simUltimoEl = modal.querySelector("#simUltimoVenc");
 
     function getRegraInfoAtual() {
       const tipo = String(tipoSel ? tipoSel.value : "DIARIO").toUpperCase();
@@ -463,94 +414,128 @@
       return { tipo, regra: inp ? String(inp.value || "") : "" };
     }
 
-    function calcSimulacao() {
+    function calcPrimeiroVencISO(dataEmp, tipo, regra) {
+      const base = String(dataEmp || "");
+      const t = String(tipo || "").toUpperCase();
+      const r = String(regra || "");
+      if (!base) return "";
+      if (t === "SEMANAL") return nextWeekdayISO(base, r, 7);
+      return r || "";
+    }
+
+    function calcUltimoVencISO(dataEmp, tipo, regra, qtd) {
+      const base = String(dataEmp || "");
+      const t = String(tipo || "").toUpperCase();
+      const n = Math.max(1, toNumber(qtd));
+      const r = String(regra || "");
+
+      if (t === "SEMANAL") {
+        const first = nextWeekdayISO(base, r, 7);
+        if (!first) return "";
+        return addDaysISO(first, 7 * (n - 1));
+      }
+
+      const first = r || base;
+      if (!first) return "";
+      if (t === "DIARIO") return addDaysISO(first, n - 1);
+      if (t === "MENSAL") return addMonthsISO(first, n - 1);
+      return "";
+    }
+
+    function updateSimMini() {
       const principal = parseMoneyBR(modal.querySelector('input[name="valor_principal"]')?.value);
       const qtd = Math.max(1, toNumber(modal.querySelector('input[name="quantidade_parcelas"]')?.value));
       const jurosPct = Math.max(0, toNumber(modal.querySelector('input[name="porcentagem_juros"]')?.value));
-      const baseData = modal.querySelector('input[name="data_emprestimo"]')?.value || todayISO();
+      const dataEmp = modal.querySelector('input[name="data_emprestimo"]')?.value || todayISO();
       const { tipo, regra } = getRegraInfoAtual();
+      const tipoV = String(tipo || "").toUpperCase();
 
-      // cálculo simples (simulação visual):
-      const jurosValor = principal * (jurosPct / 100);
-      const total = principal + jurosValor;
-      const parcela = qtd > 0 ? (total / qtd) : total;
+      const { total, baseParcela } = calcParcelasLikeBackend(principal, jurosPct, qtd, tipoV);
 
-      // vencimentos estimados
-      let primeiroISO = "";
-      if (tipo === "SEMANAL") {
-        // regra: 1..6 (Seg..Sáb). Hint do sistema fala "mínimo 7 dias"
-        primeiroISO = nextWeekdayISO(baseData, regra, 7);
-      } else {
-        primeiroISO = String(regra || "");
-        if (primeiroISO && baseData && primeiroISO < baseData) {
-          primeiroISO = baseData;
-        }
-        if (!primeiroISO) primeiroISO = baseData;
-      }
+      const primeiroISO = calcPrimeiroVencISO(dataEmp, tipoV, regra);
+      const ultimoISO = calcUltimoVencISO(dataEmp, tipoV, regra, qtd);
 
-      let ultimoISO = "";
-      if (primeiroISO) {
-        if (tipo === "DIARIO") ultimoISO = addDaysISO(primeiroISO, qtd - 1);
-        else if (tipo === "MENSAL") ultimoISO = addMonthsISO(primeiroISO, qtd - 1);
-        else if (tipo === "SEMANAL") ultimoISO = addDaysISO(primeiroISO, 7 * (qtd - 1));
-      }
-
-      return {
-        principal,
-        qtd,
-        jurosPct,
-        jurosValor,
-        total,
-        parcela,
-        tipo,
-        baseData,
-        primeiroISO,
-        ultimoISO
-      };
+      if (simPrimeiroEl) simPrimeiroEl.textContent = (primeiroISO && principal > 0) ? fmtDateBR(primeiroISO) : "—";
+      if (simUltimoEl) simUltimoEl.textContent = (ultimoISO && principal > 0) ? fmtDateBR(ultimoISO) : "—";
+      if (simTotalEl) simTotalEl.textContent = principal > 0 ? moneyBR(total) : "—";
+      if (simParcelaEl) simParcelaEl.textContent = principal > 0 ? moneyBR(baseParcela) : "—";
     }
 
-    function updateSimUI() {
-      const s = calcSimulacao();
-
-      if (simEls.tipo) simEls.tipo.textContent = tipoLabel(s.tipo);
-      if (simEls.parcelas) simEls.parcelas.textContent = `${s.qtd}x`;
-      if (simEls.jurosValor) simEls.jurosValor.textContent = moneyBR(s.jurosValor);
-      if (simEls.total) simEls.total.textContent = moneyBR(s.total);
-      if (simEls.parcela) simEls.parcela.textContent = moneyBR(s.parcela);
-
-      if (simEls.primeiro) simEls.primeiro.textContent = s.primeiroISO ? fmtDateBR(s.primeiroISO) : "—";
-      if (simEls.ultimo) simEls.ultimo.textContent = s.ultimoISO ? fmtDateBR(s.ultimoISO) : "—";
-
-      if (simEls.fTotal) simEls.fTotal.textContent = moneyBR(s.total);
-      if (simEls.fParcela) simEls.fParcela.textContent = moneyBR(s.parcela);
-
-      const pronto = s.principal > 0 && s.qtd >= 1;
-      const sub = pronto
-        ? `Base: ${moneyBR(s.principal)} • Juros: ${s.jurosPct.toLocaleString("pt-BR")}%
-           • ${tipoLabel(s.tipo)} • 1º: ${s.primeiroISO ? fmtDateBR(s.primeiroISO) : "—"}`
-            .replace(/\s+/g, " ")
-            .trim()
-        : "Preencha valor, juros, parcelas e tipo para ver a simulação.";
-
-      if (simEls.fSub) simEls.fSub.textContent = sub;
-      if (simEls.hint) simEls.hint.textContent = pronto
-        ? "Valores estimados (simulação visual). O cálculo final segue a regra do sistema."
-        : "Preencha valor, juros, parcelas e tipo.";
-    }
-
-    // Debounce simples (pra não recalcular 300x digitando)
     let simRAF = 0;
     function scheduleSimUpdate() {
       if (simRAF) cancelAnimationFrame(simRAF);
       simRAF = requestAnimationFrame(() => {
         simRAF = 0;
-        updateSimUI();
+        updateSimMini();
       });
     }
 
-    // listeners únicos via delegação (pegam campos re-renderizados)
+    // =========================
+    // Regra vencimento dinâmica + DEFAULTS automáticos
+    // =========================
+    function renderRegraField() {
+      const tipo = String(tipoSel ? tipoSel.value : "DIARIO").toUpperCase();
+      if (!wrapRegra) return;
+
+      const baseDate = (inputDataEmp && inputDataEmp.value) ? inputDataEmp.value : todayISO();
+
+      if (tipo === "SEMANAL") {
+        wrapRegra.innerHTML = `
+          <label>Dia da semana</label>
+          <select name="regra_vencimento" required id="regraVencimentoSelect">
+            <option value="1">Segunda</option>
+            <option value="2">Terça</option>
+            <option value="3">Quarta</option>
+            <option value="4">Quinta</option>
+            <option value="5">Sexta</option>
+            <option value="6">Sábado</option>
+          </select>
+          <div class="muted" style="margin-top:6px;">Primeira prestação será no mínimo daqui 7 dias e cairá no dia selecionado (sem domingo).</div>
+        `;
+      } else {
+        wrapRegra.innerHTML = `
+          <label>Primeiro vencimento</label>
+          <input type="date" name="regra_vencimento" required id="regraVencimentoDate" />
+          <div class="muted" style="margin-top:6px;">
+            ${tipo === "MENSAL" ? "Primeiro vencimento automático: mesmo dia do próximo mês." : "Primeiro vencimento automático: amanhã."}
+          </div>
+        `;
+
+        const dateEl = wrapRegra.querySelector("#regraVencimentoDate");
+        if (dateEl) {
+          dateEl.min = baseDate;
+          const defVal = (tipo === "MENSAL") ? addMonthsISO(baseDate, 1) : addDaysISO(baseDate, 1);
+          dateEl.value = defVal;
+          if (dateEl.value && dateEl.value < baseDate) dateEl.value = defVal;
+        }
+      }
+
+      scheduleSimUpdate();
+    }
+
+    if (tipoSel) tipoSel.addEventListener("change", renderRegraField);
+
+    if (inputDataEmp) {
+      inputDataEmp.addEventListener("change", () => {
+        const tipo = String(tipoSel ? tipoSel.value : "DIARIO").toUpperCase();
+        const base = inputDataEmp.value || todayISO();
+
+        const dateEl = modal.querySelector("#regraVencimentoDate");
+        if (dateEl) {
+          dateEl.min = base;
+          const desired = (tipo === "MENSAL") ? addMonthsISO(base, 1) : addDaysISO(base, 1);
+          dateEl.value = desired;
+          if (dateEl.value && dateEl.value < base) dateEl.value = desired;
+        }
+
+        scheduleSimUpdate();
+      });
+    }
+
+    // listeners sim
     if (form && !form.dataset.simBound) {
       form.dataset.simBound = "1";
+
       form.addEventListener("input", (e) => {
         const t = e.target;
         if (!t) return;
@@ -564,9 +549,7 @@
           name === "regra_vencimento" ||
           name === "data_emprestimo" ||
           id === "tipoVencimentoNovoEmprestimo"
-        ) {
-          scheduleSimUpdate();
-        }
+        ) scheduleSimUpdate();
       });
 
       form.addEventListener("change", (e) => {
@@ -579,81 +562,7 @@
           name === "regra_vencimento" ||
           name === "data_emprestimo" ||
           id === "tipoVencimentoNovoEmprestimo"
-        ) {
-          scheduleSimUpdate();
-        }
-      });
-    }
-
-    // =========================
-    // Regra vencimento dinâmica
-    // =========================
-    function renderRegraField() {
-      const tipo = String(tipoSel ? tipoSel.value : "DIARIO").toUpperCase();
-      if (!wrapRegra) return;
-
-      wrapRegra.innerHTML = `
-        <label id="labelRegraVencimento"></label>
-        <div id="regraFieldSlot"></div>
-        <div class="muted" style="margin-top:6px;" id="hintRegraVencimento"></div>
-      `;
-
-      const label = wrapRegra.querySelector("#labelRegraVencimento");
-      const slot = wrapRegra.querySelector("#regraFieldSlot");
-      const hint = wrapRegra.querySelector("#hintRegraVencimento");
-
-      const baseDate = (inputDataEmp && inputDataEmp.value) ? inputDataEmp.value : todayISO();
-
-      function hintSet(t) { if (hint) hint.textContent = t || ""; }
-
-      if (tipo === "SEMANAL") {
-        if (label) label.textContent = "Dia da semana";
-        if (slot) {
-          slot.innerHTML = `
-            <select name="regra_vencimento" required id="regraVencimentoSelect">
-              <option value="1">Segunda</option>
-              <option value="2">Terça</option>
-              <option value="3">Quarta</option>
-              <option value="4">Quinta</option>
-              <option value="5">Sexta</option>
-              <option value="6">Sábado</option>
-            </select>
-          `;
-        }
-        hintSet("Primeira prestação será no mínimo daqui 7 dias e cairá no dia selecionado (sem domingo).");
-      } else {
-        if (label) label.textContent = "Primeiro vencimento";
-        if (slot) {
-          slot.innerHTML = `<input type="date" name="regra_vencimento" required id="regraVencimentoDate" />`;
-        }
-
-        const dateEl = wrapRegra.querySelector("#regraVencimentoDate");
-        if (dateEl) {
-          dateEl.value = baseDate;
-          dateEl.min = baseDate;
-        }
-
-        hintSet(tipo === "MENSAL"
-          ? "Escolha a data do primeiro vencimento. As próximas parcelas serão mês a mês."
-          : "Escolha a data do primeiro vencimento. As próximas parcelas serão dia a dia."
-        );
-      }
-
-      // sempre que re-renderiza, atualiza simulação
-      scheduleSimUpdate();
-    }
-
-    if (tipoSel) tipoSel.addEventListener("change", renderRegraField);
-
-    if (inputDataEmp) {
-      inputDataEmp.addEventListener("change", () => {
-        const dateEl = modal.querySelector("#regraVencimentoDate");
-        if (dateEl) {
-          const base = inputDataEmp.value || todayISO();
-          dateEl.min = base;
-          if (!dateEl.value || dateEl.value < base) dateEl.value = base;
-        }
-        scheduleSimUpdate();
+        ) scheduleSimUpdate();
       });
     }
 
@@ -693,7 +602,6 @@
       const list = Array.isArray(clientesCache) ? clientesCache : [];
       const filtered = list.filter((c) => normalizeTxt(c.nome).includes(q));
 
-      // ordem alfabética
       filtered.sort((a, b) =>
         a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" })
       );
@@ -733,14 +641,11 @@
       el.scrollIntoView({ block: "nearest" });
     }
 
-    // clique / hover na sugestão
     if (suggestBox) {
       suggestBox.addEventListener("mousedown", (e) => {
         const item = e.target.closest(".acitem");
         if (!item) return;
-        e.preventDefault(); // evita blur antes de selecionar
-
-        // ignora "Nenhum cliente encontrado"
+        e.preventDefault();
         if (/Nenhum cliente/i.test(item.textContent || "")) return;
 
         const id = item.getAttribute("data-id") || "";
@@ -756,20 +661,16 @@
       });
     }
 
-    // digitação
     if (clienteInput) {
       clienteInput.addEventListener("input", async () => {
-        // se o usuário começou a digitar manualmente, limpa seleção anterior
         if (clienteHidden) clienteHidden.value = "";
         setLockedUI(false);
-
         await loadClientesCache();
         renderSuggest(clienteInput.value);
       });
 
       clienteInput.addEventListener("keydown", (e) => {
         if (!suggestBox || suggestBox.hidden) {
-          // Enter sem dropdown: não envia, força escolher
           if (e.key === "Enter") e.preventDefault();
           return;
         }
@@ -804,13 +705,11 @@
         }
       });
 
-      // blur fecha (delay p/ clique)
       clienteInput.addEventListener("blur", () => {
         setTimeout(hideSuggest, 120);
       });
     }
 
-    // ✅ botão X pra destravar e trocar cliente
     if (clearBtn) {
       clearBtn.addEventListener("click", async () => {
         if (clienteHidden) clienteHidden.value = "";
@@ -820,7 +719,7 @@
           clienteInput.focus();
         }
         await loadClientesCache();
-        hideSuggest(); // só aparece quando digitar
+        hideSuggest();
       });
     }
 
@@ -830,21 +729,18 @@
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
-      // evita duplo clique
       if (btnSubmit) {
         btnSubmit.disabled = true;
         btnSubmit.dataset.loading = "1";
       }
 
       try {
-        // ✅ valida cliente selecionado
         if (!clienteHidden || !clienteHidden.value) {
           if (btnSubmit) btnSubmit.disabled = false;
           onError("Selecione um cliente (digite e escolha na lista).");
           return;
         }
 
-        // validação extra: se for date, garante >= data_emprestimo
         const tipo = String((modal.querySelector('select[name="tipo_vencimento"]')?.value) || "").toUpperCase();
         const base = modal.querySelector('input[name="data_emprestimo"]')?.value || "";
         const regraDate = modal.querySelector('input[name="regra_vencimento"][type="date"]')?.value || "";
@@ -873,14 +769,12 @@
         GestorModal.close("modalNovoEmprestimo");
         form.reset();
 
-        // limpa cliente UI
         if (clienteHidden) clienteHidden.value = "";
         if (clienteInput) clienteInput.value = "";
         setLockedUI(false);
         hideSuggest();
 
         toast("Empréstimo criado!");
-
         window.location.href = "emprestimos.php";
       } catch (err) {
         console.error(err);
@@ -889,15 +783,14 @@
       }
     });
 
-    // defaults iniciais
+    // defaults
     const inputData = modal.querySelector('input[name="data_emprestimo"]');
     if (inputData && !inputData.value) inputData.value = todayISO();
 
     renderRegraField();
-    scheduleSimUpdate(); // ✅ já mostra simulação (mesmo que vazia)
+    scheduleSimUpdate();
   }
 
-  // ✅ PADRÃO CERTO: recebe payload { clienteId, clienteNome }
   async function openNovoEmprestimo(payload = {}) {
     if (!document.getElementById("modalNovoEmprestimo")) {
       injectModalNovoEmprestimo();
@@ -931,7 +824,6 @@
     }
     acActiveIndex = -1;
 
-    // carrega cache (melhora UX na primeira busca)
     await loadClientesCache();
 
     const clienteId = String(payload.clienteId || "");
@@ -940,7 +832,7 @@
     if (clienteId && clienteHidden && clienteInput) {
       clienteHidden.value = clienteId;
       clienteInput.value = clienteNome || `Cliente #${clienteId}`;
-      setLockedUI(true); // ✅ travado e com X pra destravar
+      setLockedUI(true);
     } else if (clienteHidden && clienteInput) {
       clienteHidden.value = "";
       clienteInput.value = "";
@@ -950,18 +842,10 @@
     const inputData = modal.querySelector('input[name="data_emprestimo"]');
     if (inputData && !inputData.value) inputData.value = todayISO();
 
-    // re-render (pra ajustar min/default do vencimento)
-    const tipoSel = modal.querySelector('#tipoVencimentoNovoEmprestimo');
+    const tipoSel = modal.querySelector("#tipoVencimentoNovoEmprestimo");
     if (tipoSel) {
-      const ev = new Event('change', { bubbles: true });
+      const ev = new Event("change", { bubbles: true });
       tipoSel.dispatchEvent(ev);
-    }
-
-    // atualiza simulação ao abrir
-    const form = modal.querySelector("#formNovoEmprestimo");
-    if (form) {
-      const ev2 = new Event("input", { bubbles: true });
-      form.dispatchEvent(ev2);
     }
 
     GestorModal.open("modalNovoEmprestimo");
