@@ -1,6 +1,6 @@
 <?php
 return [
   'username' => 'rafael',
-  'password_hash' => '$2y$10$LICv4aM4ohjP2Rq/ByyyPugdSK6ZetBGdSwnSf3c/ZbaXHMUSdD5a',
+  'password_hash' => '$2y$10$QoEDEo7UReeJU6LMQb1XhOs5FRIYAbJAuIz7iBHMcVg4DmrPoSs9e',
 ];
 

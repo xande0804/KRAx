@@ -45,20 +45,33 @@
   // ✅ NOVO: fecha modal ao clicar fora (na área vazia do próprio modal)
   // - Não usa stopPropagation
   // - Não interfere em botões/inputs dentro do modal
+  // ✅ NOVO: fecha modal ao clicar fora, mas NÃO fecha quando o clique começou dentro e terminou fora (ex: seleção de texto)
   function bindOutsideClickClose() {
     document.querySelectorAll(".modal").forEach((modal) => {
       if (!modal || modal.dataset.outsideCloseBound === "1") return;
       modal.dataset.outsideCloseBound = "1";
 
-      modal.addEventListener("click", (e) => {
-        // Só fecha se o clique foi no próprio "backdrop" do modal (section.modal),
-        // e NÃO em elementos internos (dialog, botões, inputs etc).
-        if (e.target === modal) {
+      let downOnBackdrop = false;
+
+      modal.addEventListener("pointerdown", (e) => {
+        // só marca true se o pointerdown foi no backdrop (a própria section.modal)
+        downOnBackdrop = (e.target === modal);
+      });
+
+      modal.addEventListener("pointerup", (e) => {
+        // fecha só se começou E terminou no backdrop
+        if (downOnBackdrop && e.target === modal) {
           Modal.closeAll();
         }
+        downOnBackdrop = false;
       });
+
+      // segurança: se o pointer sair/cancelar, zera flag
+      modal.addEventListener("pointercancel", () => { downOnBackdrop = false; });
+      modal.addEventListener("pointerleave", () => { /* não zera aqui pra não quebrar click normal */ });
     });
   }
+
 
   function injectOverlay() {
     if (qs("#modalOverlay")) return;
@@ -68,7 +81,21 @@
     overlay.className = "modal-overlay";
 
     // clique no overlay fecha todos (seu comportamento original)
-    overlay.addEventListener("click", () => Modal.closeAll());
+    let downOnOverlay = false;
+
+    overlay.addEventListener("pointerdown", (e) => {
+      downOnOverlay = (e.target === overlay);
+    });
+
+    overlay.addEventListener("pointerup", (e) => {
+      if (downOnOverlay && e.target === overlay) {
+        Modal.closeAll();
+      }
+      downOnOverlay = false;
+    });
+
+    overlay.addEventListener("pointercancel", () => { downOnOverlay = false; });
+
 
     document.body.appendChild(overlay);
 
