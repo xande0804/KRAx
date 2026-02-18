@@ -88,6 +88,50 @@
   }
 
   // =========================
+  // ✅ NOVO: regra "nunca domingo" no FRONT + ALERT
+  // =========================
+  function isSundayISO(iso) {
+    const s = String(iso || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const [y, m, d] = s.split("-").map(Number);
+    const dt = new Date(y, m - 1, d);
+    return dt.getDay() === 0; // 0 = domingo
+  }
+
+  function shiftIfSundayISO(iso) {
+    return isSundayISO(iso) ? addDaysISO(iso, 1) : String(iso || "");
+  }
+
+  /**
+   * Ajusta o input de data caso caia em domingo.
+   * - mode: "alert" -> mostra alert e ajusta para segunda
+   * - mode: "silent" -> só ajusta (sem alert)
+   */
+  function ensureNotSundayOnDateInput(dateEl, opts = {}) {
+    if (!dateEl) return;
+
+    const mode = opts.mode || "silent"; // "alert" | "silent"
+
+    const v0 = String(dateEl.value || "");
+    if (!v0) return;
+
+    if (!isSundayISO(v0)) return;
+
+    const v1 = shiftIfSundayISO(v0);
+    if (!v1) return;
+
+    if (mode === "alert") {
+      const msg =
+        `⚠️ Atenção!\n\n` +
+        `O dia selecionado (${fmtDateBR(v0)}) cai em um DOMINGO.\n` +
+        `A parcela será automaticamente transferida para a SEGUNDA-FEIRA (${fmtDateBR(v1)}).`;
+      alert(msg);
+    }
+
+    dateEl.value = v1;
+  }
+
+  // =========================
   // ✅ SIMULAÇÃO 100% IGUAL AO BACKEND
   // - MENSAL: total = principal + (principal * juros%) * qtd
   // - DIARIO/SEMANAL: total = principal * (1 + juros%)
@@ -420,7 +464,7 @@
       const r = String(regra || "");
       if (!base) return "";
       if (t === "SEMANAL") return nextWeekdayISO(base, r, 7);
-      return r || "";
+      return shiftIfSundayISO(r || "");
     }
 
     function calcUltimoVencISO(dataEmp, tipo, regra, qtd) {
@@ -435,7 +479,7 @@
         return addDaysISO(first, 7 * (n - 1));
       }
 
-      const first = r || base;
+      const first = shiftIfSundayISO(r || base);
       if (!first) return "";
       if (t === "DIARIO") return addDaysISO(first, n - 1);
       if (t === "MENSAL") return addMonthsISO(first, n - 1);
@@ -473,6 +517,25 @@
     // =========================
     // Regra vencimento dinâmica + DEFAULTS automáticos
     // =========================
+    function bindRegraDateEvents() {
+      const dateEl = modal.querySelector("#regraVencimentoDate");
+      if (!dateEl) return;
+      if (dateEl.dataset.boundSunday) return;
+      dateEl.dataset.boundSunday = "1";
+
+      // ✅ quando o usuário escolhe manualmente: ALERT + ajuste para segunda
+      dateEl.addEventListener("change", () => {
+        ensureNotSundayOnDateInput(dateEl, { mode: "alert" });
+        scheduleSimUpdate();
+      });
+
+      // input: só garante ajuste silencioso
+      dateEl.addEventListener("input", () => {
+        ensureNotSundayOnDateInput(dateEl, { mode: "silent" });
+        scheduleSimUpdate();
+      });
+    }
+
     function renderRegraField() {
       const tipo = String(tipoSel ? tipoSel.value : "DIARIO").toUpperCase();
       if (!wrapRegra) return;
@@ -497,16 +560,25 @@
           <label>Primeiro vencimento</label>
           <input type="date" name="regra_vencimento" required id="regraVencimentoDate" />
           <div class="muted" style="margin-top:6px;">
-            ${tipo === "MENSAL" ? "Primeiro vencimento automático: mesmo dia do próximo mês." : "Primeiro vencimento automático: amanhã."}
+            ${tipo === "MENSAL" ? "Primeiro vencimento automático: mesmo dia do próximo mês." : "Primeiro vencimento automático."}
           </div>
         `;
 
         const dateEl = wrapRegra.querySelector("#regraVencimentoDate");
         if (dateEl) {
           dateEl.min = baseDate;
-          const defVal = (tipo === "MENSAL") ? addMonthsISO(baseDate, 1) : addDaysISO(baseDate, 1);
+
+          const defRaw = (tipo === "MENSAL") ? addMonthsISO(baseDate, 1) : addDaysISO(baseDate, 1);
+          const defVal = shiftIfSundayISO(defRaw);
+
           dateEl.value = defVal;
           if (dateEl.value && dateEl.value < baseDate) dateEl.value = defVal;
+
+          // ✅ garante no load (sem alert)
+          ensureNotSundayOnDateInput(dateEl, { mode: "silent" });
+
+          // ✅ garante nos eventos
+          bindRegraDateEvents();
         }
       }
 
@@ -523,9 +595,15 @@
         const dateEl = modal.querySelector("#regraVencimentoDate");
         if (dateEl) {
           dateEl.min = base;
-          const desired = (tipo === "MENSAL") ? addMonthsISO(base, 1) : addDaysISO(base, 1);
+
+          const desiredRaw = (tipo === "MENSAL") ? addMonthsISO(base, 1) : addDaysISO(base, 1);
+          const desired = shiftIfSundayISO(desiredRaw);
+
           dateEl.value = desired;
           if (dateEl.value && dateEl.value < base) dateEl.value = desired;
+
+          ensureNotSundayOnDateInput(dateEl, { mode: "silent" });
+          bindRegraDateEvents();
         }
 
         scheduleSimUpdate();
@@ -743,12 +821,18 @@
 
         const tipo = String((modal.querySelector('select[name="tipo_vencimento"]')?.value) || "").toUpperCase();
         const base = modal.querySelector('input[name="data_emprestimo"]')?.value || "";
-        const regraDate = modal.querySelector('input[name="regra_vencimento"][type="date"]')?.value || "";
+        const regraDateEl = modal.querySelector('input[name="regra_vencimento"][type="date"]');
 
-        if ((tipo === "DIARIO" || tipo === "MENSAL") && base && regraDate && regraDate < base) {
-          if (btnSubmit) btnSubmit.disabled = false;
-          onError("O primeiro vencimento não pode ser menor que a data do empréstimo.");
-          return;
+        if ((tipo === "DIARIO" || tipo === "MENSAL") && regraDateEl) {
+          // ✅ antes de enviar: garante sem domingo (sem alert duplicado)
+          ensureNotSundayOnDateInput(regraDateEl, { mode: "silent" });
+
+          const regraFinal = regraDateEl.value || "";
+          if (base && regraFinal && regraFinal < base) {
+            if (btnSubmit) btnSubmit.disabled = false;
+            onError("O primeiro vencimento não pode ser menor que a data do empréstimo.");
+            return;
+          }
         }
 
         const fd = new FormData(form);

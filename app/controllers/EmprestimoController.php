@@ -362,10 +362,29 @@ class EmprestimoController
         throw new InvalidArgumentException("tipo_vencimento inválido.");
     }
 
+    /**
+     * ✅ REGRA NOVA (PEDIDA):
+     * NUNCA permitir vencimento no DOMINGO.
+     * Se uma parcela cair no domingo, ela vai para segunda (+1 dia)
+     * e todas as parcelas seguintes ficam automaticamente deslocadas,
+     * porque o cálculo passa a ser sequencial (parcela por parcela).
+     */
+    private function ajustarSeDomingo(DateTime $dt): void
+    {
+        // N: 1=Seg ... 7=Dom
+        if ((int)$dt->format('N') === 7) {
+            $dt->modify('+1 day');
+        }
+    }
+
     private function calcularVencimento(string $base, string $tipo, ?string $regra, int $n): string
     {
         $tipo = strtoupper(trim((string)$tipo));
         $baseDt = new DateTime($base);
+
+        if ($n <= 0) {
+            throw new InvalidArgumentException("Número de parcela inválido.");
+        }
 
         if ($tipo === 'DIARIO') {
             if (!$regra) {
@@ -373,12 +392,27 @@ class EmprestimoController
             }
 
             $first = new DateTime($regra);
-
             if ($first < $baseDt) {
                 throw new InvalidArgumentException("O primeiro vencimento (DIÁRIO) não pode ser menor que a data do empréstimo.");
             }
 
-            $first->modify('+' . ($n - 1) . ' day');
+            // ✅ cálculo sequencial com ajuste de domingo acumulativo
+            $cur = clone $first;
+            for ($i = 1; $i <= $n; $i++) {
+                $due = clone $cur;
+
+                $this->ajustarSeDomingo($due);
+
+                if ($i === $n) {
+                    return $due->format('Y-m-d');
+                }
+
+                // próxima parcela: +1 dia a partir do vencimento ajustado
+                $cur = clone $due;
+                $cur->modify('+1 day');
+            }
+
+            // nunca chega aqui
             return $first->format('Y-m-d');
         }
 
@@ -388,12 +422,26 @@ class EmprestimoController
             }
 
             $first = new DateTime($regra);
-
             if ($first < $baseDt) {
                 throw new InvalidArgumentException("O primeiro vencimento (MENSAL) não pode ser menor que a data do empréstimo.");
             }
 
-            $first->modify('+' . ($n - 1) . ' month');
+            // ✅ cálculo sequencial com ajuste de domingo acumulativo
+            $cur = clone $first;
+            for ($i = 1; $i <= $n; $i++) {
+                $due = clone $cur;
+
+                $this->ajustarSeDomingo($due);
+
+                if ($i === $n) {
+                    return $due->format('Y-m-d');
+                }
+
+                // próxima parcela: +1 mês a partir do vencimento ajustado
+                $cur = clone $due;
+                $cur->modify('+1 month');
+            }
+
             return $first->format('Y-m-d');
         }
 
@@ -417,10 +465,23 @@ class EmprestimoController
             $first = clone $start;
             $first->modify('+' . $delta . ' day');
 
-            $first->modify('+' . ($n - 1) . ' week');
-
             if ($first < $baseDt) {
                 throw new InvalidArgumentException("Vencimento semanal calculado inválido (menor que data do empréstimo).");
+            }
+
+            // ✅ cálculo sequencial (mesmo que SEMANAL já evite domingo por regra)
+            $cur = clone $first;
+            for ($i = 1; $i <= $n; $i++) {
+                $due = clone $cur;
+
+                $this->ajustarSeDomingo($due);
+
+                if ($i === $n) {
+                    return $due->format('Y-m-d');
+                }
+
+                $cur = clone $due;
+                $cur->modify('+1 week');
             }
 
             return $first->format('Y-m-d');
