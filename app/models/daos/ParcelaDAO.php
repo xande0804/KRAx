@@ -12,6 +12,14 @@ class ParcelaDAO
         $this->pdo = Database::conectar();
     }
 
+    /**
+     * Útil pra transações (edição/correção precisa ser atômica).
+     */
+    public function getPdo(): PDO
+    {
+        return $this->pdo;
+    }
+
     public function criar(Parcela $p): int
     {
         $sql = "INSERT INTO parcelas
@@ -94,6 +102,27 @@ class ParcelaDAO
         return $row ?: null;
     }
 
+    public function buscarPorId(int $parcelaId): ?array
+    {
+        $sql = "SELECT
+                  id,
+                  emprestimo_id,
+                  numero_parcela,
+                  data_vencimento,
+                  valor_parcela,
+                  COALESCE(valor_pago, 0) AS valor_pago,
+                  status,
+                  pago_em
+                FROM parcelas
+                WHERE id = :id
+                LIMIT 1";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':id' => $parcelaId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+
     public function atualizarDataVencimento(int $parcelaId, string $novaData): bool
     {
         $sql = "UPDATE parcelas
@@ -164,6 +193,74 @@ class ParcelaDAO
         ]);
     }
 
+    /**
+     * ✅ Ajusta valor_pago com delta (pode ser + ou -) e recalcula status/pago_em.
+     * - Se ficar >= valor_parcela => PAGA e pago_em = NOW() (se ainda não tiver)
+     * - Se ficar entre (0 e valor_parcela) => PARCIAL e limpa pago_em
+     * - Se ficar 0 => ABERTA e limpa pago_em
+     */
+    public function ajustarPagamentoNaParcela(int $parcelaId, float $delta): bool
+    {
+        if ($parcelaId <= 0) return false;
+        if (!is_finite($delta) || $delta == 0.0) return true;
+
+        $row = $this->buscarPorId($parcelaId);
+        if (!$row) return false;
+
+        $valorParcela = round((float)($row['valor_parcela'] ?? 0), 2);
+        $valorAtual   = round((float)($row['valor_pago'] ?? 0), 2);
+
+        // novo valor com clamp
+        $novo = round($valorAtual + $delta, 2);
+        if ($novo < 0) $novo = 0.0;
+        if ($valorParcela > 0 && $novo > $valorParcela) $novo = $valorParcela;
+
+        // define status
+        if ($valorParcela > 0 && $novo + 0.00001 >= $valorParcela) {
+            $novo = $valorParcela;
+            $status = 'PAGA';
+
+            // mantém pago_em se já existia; senão seta agora
+            $sql = "UPDATE parcelas
+                    SET valor_pago = :vp,
+                        status = :st,
+                        pago_em = CASE WHEN pago_em IS NULL THEN NOW() ELSE pago_em END
+                    WHERE id = :id";
+        } elseif ($novo > 0) {
+            $status = 'PARCIAL';
+
+            // ao voltar pra parcial, remove pago_em
+            $sql = "UPDATE parcelas
+                    SET valor_pago = :vp,
+                        status = :st,
+                        pago_em = NULL
+                    WHERE id = :id";
+        } else {
+            $status = 'ABERTA';
+
+            $sql = "UPDATE parcelas
+                    SET valor_pago = :vp,
+                        status = :st,
+                        pago_em = NULL
+                    WHERE id = :id";
+        }
+
+        $stmt = $this->pdo->prepare($sql);
+        return $stmt->execute([
+            ':vp' => $novo,
+            ':st' => $status,
+            ':id' => $parcelaId
+        ]);
+    }
+
+    /**
+     * ✅ Atalho: remove valor de uma parcela (reverte pagamento).
+     */
+    public function removerPagamentoDaParcela(int $parcelaId, float $valor): bool
+    {
+        if ($parcelaId <= 0 || $valor <= 0) return false;
+        return $this->ajustarPagamentoNaParcela($parcelaId, -abs($valor));
+    }
 
     // ===== Vencimentos =====
 
@@ -196,7 +293,6 @@ class ParcelaDAO
 
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
-
 
     public function listarVencimentosEntre(DateTime $ini, DateTime $fim): array
     {

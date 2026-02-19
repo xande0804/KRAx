@@ -2,7 +2,15 @@
 (function () {
   const qs = window.qs;
   const onError = window.onError || function () { };
+  const onSuccess = window.onSuccess || function () { };
+  const toast = window.toast || null;
   const GestorModal = window.GestorModal;
+
+  function notifyOk(msg) {
+    if (typeof onSuccess === "function") return onSuccess(msg);
+    if (toast && typeof toast.success === "function") return toast.success(msg);
+    try { alert(msg); } catch (_) { }
+  }
 
   function money(v) {
     const num = Number(v);
@@ -111,6 +119,19 @@
     return Number(p?.id ?? p?.parcela_id ?? 0) || 0;
   }
 
+  // ✅ aceita "DD/MM/AAAA" ou "AAAA-MM-DD" e retorna "AAAA-MM-DD"
+  function normalizeDateToISO(input) {
+    const s = String(input ?? "").trim();
+    if (!s) return "";
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+
+    return "";
+  }
+
   // ✅ monta mapa: parcela_id -> MAIOR data_pagamento (PARCELA)
   // + fallback de quitação: maior data_pagamento (QUITACAO/INTEGRAL) com parcela_id null
   function buildPagamentoMaps(pagamentos) {
@@ -169,7 +190,6 @@
 
     // fallback: se foi quitado/integral e a parcela ficou QUITADA sem pagamento por parcela_id
     if (!pagoEmISO && pgMaps && pgMaps.quitacaoFallbackDate) {
-      // só faz sentido se a parcela está paga/quitada
       if (isPagaReal) pagoEmISO = pgMaps.quitacaoFallbackDate;
     }
 
@@ -264,6 +284,222 @@
     return round2(totalQuit);
   }
 
+  function getCtxFromModal(modal) {
+    return {
+      origem: modal?.dataset?.origem || "emprestimos",
+      clienteId: modal?.dataset?.clienteId || ""
+    };
+  }
+
+  // ✅ editar pagamento:
+  // - se tipo PARCELA: faz "substituição" (exclui + lança novo) pra manter rateio do restante
+  // - senão: tenta rota pagamentos/atualizar (se existir)
+  async function editarPagamentoUI(pg, emprestimoId, modal, tipoVencimento) {
+    const pgId = String(pg?.id ?? pg?.pagamento_id ?? "").trim();
+    if (!pgId) return onError("Pagamento sem ID (não dá pra editar).");
+
+    const tipoPg = String(pg.tipo_pagamento || pg.tipo || "").trim().toUpperCase();
+    const parcelaId = Number(pg.parcela_id ?? pg.parcelaId ?? pg.parcela ?? 0) || 0;
+
+    const valorAtual = toNumber(pg.valor_pago ?? pg.valor ?? 0);
+    const dataAtualISO = onlyDate(pg.data_pagamento || pg.data || todayISO());
+    const dataAtualBR = formatDateBR(dataAtualISO);
+    const obsAtual = String(pg.observacao || "").trim();
+
+    const novoValorStr = prompt("Novo valor do pagamento (ex: 100,00):", formatMoneyInputBR(valorAtual));
+    if (novoValorStr === null) return;
+    const novoValor = toNumber(novoValorStr);
+    if (!(novoValor > 0)) return onError("Valor inválido.");
+
+    const novaDataStr = prompt("Nova data do pagamento (DD/MM/AAAA ou AAAA-MM-DD):", dataAtualBR);
+    if (novaDataStr === null) return;
+    if (String(novaDataStr).trim() === "") return;
+
+    const novaDataISO = normalizeDateToISO(novaDataStr);
+    if (!novaDataISO) return onError("Data inválida. Use DD/MM/AAAA ou AAAA-MM-DD.");
+
+    const novaObs = prompt("Observação (opcional):", obsAtual);
+    if (novaObs === null) return;
+
+    // ✅ Se é PARCELA, usa o mesmo comportamento do lançamento (rateio do resto)
+    if (tipoPg === "PARCELA") {
+      if (!parcelaId) {
+        onError("Esse pagamento é PARCELA mas não tem parcela_id. Não dá pra refazer rateio.");
+        return;
+      }
+
+      try {
+        // 1) excluir antigo
+        {
+          const fdDel = new FormData();
+          fdDel.append("pagamento_id", pgId);
+
+          const rDel = await fetch("/KRAx/public/api.php?route=pagamentos/excluir", {
+            method: "POST",
+            body: fdDel,
+            headers: { "Accept": "application/json" }
+          });
+
+          const jDel = await rDel.json().catch(() => null);
+          if (!jDel || !jDel.ok) {
+            onError((jDel && (jDel.mensagem || jDel.error)) || "Erro ao excluir pagamento antigo (pra refazer rateio).");
+            return;
+          }
+        }
+
+        // 2) lançar novo (o backend vai jogar o restante pra próxima)
+        {
+          const fd = new FormData();
+          fd.append("emprestimo_id", String(emprestimoId));
+          fd.append("parcela_id", String(parcelaId));
+          fd.append("tipo_pagamento", "PARCELA");
+          fd.append("valor_pago", formatMoneyInputBR(novoValor));
+          fd.append("data_pagamento", novaDataISO);
+          fd.append("observacao", String(novaObs || "").trim());
+
+          const r = await fetch("/KRAx/public/api.php?route=pagamentos/lancar", {
+            method: "POST",
+            body: fd,
+            headers: { "Accept": "application/json" }
+          });
+
+          const j = await r.json().catch(() => null);
+          if (!j || !j.ok) {
+            onError((j && (j.mensagem || j.error)) || "Erro ao lançar novo pagamento (rateio).");
+            return;
+          }
+        }
+
+        notifyOk("Pagamento editado ✅ (com rateio automático)");
+        const ctx = getCtxFromModal(modal);
+        window.openDetalhesEmprestimo(emprestimoId, ctx);
+        return;
+
+      } catch (e) {
+        console.error(e);
+        onError("Erro de rede ao editar com rateio.");
+        return;
+      }
+    }
+
+    // ✅ Outros tipos: tenta atualizar direto (se você tiver essa rota)
+    try {
+      const fd = new FormData();
+      fd.append("pagamento_id", pgId);
+      fd.append("tipo_pagamento", tipoPg || "");
+      if (tipoPg === "PARCELA" && parcelaId) fd.append("parcela_id", String(parcelaId));
+      fd.append("valor_pago", formatMoneyInputBR(novoValor));
+      fd.append("data_pagamento", novaDataISO);
+      fd.append("observacao", String(novaObs || "").trim());
+
+      const r = await fetch("/KRAx/public/api.php?route=pagamentos/atualizar", {
+        method: "POST",
+        body: fd,
+        headers: { "Accept": "application/json" }
+      });
+
+      const j = await r.json().catch(() => null);
+      if (!j || !j.ok) {
+        return onError((j && (j.mensagem || j.error)) || "Erro ao atualizar pagamento.");
+      }
+
+      notifyOk("Pagamento atualizado ✅");
+      const ctx = getCtxFromModal(modal);
+      window.openDetalhesEmprestimo(emprestimoId, ctx);
+    } catch (e) {
+      console.error(e);
+      onError("Erro de rede ao atualizar pagamento.");
+    }
+  }
+
+  async function excluirPagamentoUI(pg, emprestimoId, modal) {
+    const pgId = String(pg?.id ?? pg?.pagamento_id ?? "").trim();
+    if (!pgId) return onError("Pagamento sem ID (não dá pra excluir).");
+
+    const tipoRaw = String(pg.tipo_pagamento || pg.tipo || "Pagamento").trim().toUpperCase();
+    const data = formatDateBR(pg.data_pagamento || pg.data);
+    const val = money(pg.valor_pago || pg.valor);
+
+    const ok = confirm(`Excluir este pagamento?\n\nTipo: ${tipoRaw}\nData: ${data}\nValor: ${val}`);
+    if (!ok) return;
+
+    try {
+      const fd = new FormData();
+      fd.append("pagamento_id", pgId);
+
+      const r = await fetch("/KRAx/public/api.php?route=pagamentos/excluir", {
+        method: "POST",
+        body: fd,
+        headers: { "Accept": "application/json" }
+      });
+
+      const j = await r.json().catch(() => null);
+      if (!j || !j.ok) {
+        return onError((j && (j.mensagem || j.error)) || "Erro ao excluir pagamento.");
+      }
+
+      notifyOk("Pagamento excluído ✅");
+      const ctx = getCtxFromModal(modal);
+      window.openDetalhesEmprestimo(emprestimoId, ctx);
+    } catch (e) {
+      console.error(e);
+      onError("Erro de rede ao excluir pagamento.");
+    }
+  }
+
+  async function excluirEmprestimoUI(emprestimoId, modal, clienteNome) {
+    const id = String(emprestimoId || "").trim();
+    if (!id) return onError("emprestimoId vazio (não dá pra excluir).");
+
+    const ok = confirm(
+      `Excluir este empréstimo?\n\n` +
+      `Cliente: ${clienteNome || "—"}\n` +
+      `Só é permitido se NÃO houver pagamentos.`
+    );
+    if (!ok) return;
+
+    const btn = modal?.querySelector?.("#btnDeleteLoanBottom");
+    if (btn) btn.disabled = true;
+
+    try {
+      const fd = new FormData();
+      fd.append("emprestimo_id", id);
+
+      const r = await fetch("/KRAx/public/api.php?route=emprestimos/excluir", {
+        method: "POST",
+        body: fd,
+        headers: { "Accept": "application/json" }
+      });
+
+      const j = await r.json().catch(() => null);
+
+      if (btn) btn.disabled = false;
+
+      if (!j || !j.ok) {
+        return onError((j && (j.mensagem || j.error)) || "Erro ao excluir empréstimo.");
+      }
+
+      notifyOk(j.mensagem || "Empréstimo excluído ✅");
+      GestorModal.close("modalDetalhesEmprestimo");
+
+      // refresh conforme origem
+      const origemSalva = modal?.dataset?.origem || "emprestimos";
+      const clienteIdSalvo = modal?.dataset?.clienteId || "";
+
+      if (origemSalva === "cliente" && clienteIdSalvo && typeof window.openDetalhesCliente === "function") {
+        window.openDetalhesCliente(clienteIdSalvo);
+        if (typeof window.refreshClientesList === "function") window.refreshClientesList();
+      } else {
+        if (typeof window.refreshEmprestimosList === "function") window.refreshEmprestimosList();
+        if (typeof window.refreshClientesList === "function") window.refreshClientesList();
+      }
+    } catch (e) {
+      console.error(e);
+      if (btn) btn.disabled = false;
+      onError("Erro de rede ao excluir empréstimo.");
+    }
+  }
+
   // ========= INJECT =========
   window.injectModalDetalhesEmprestimo = function injectModalDetalhesEmprestimo() {
     if (qs("#modalDetalhesEmprestimo")) return;
@@ -354,6 +590,24 @@
             <h4 class="modal-section__title">Histórico de pagamentos</h4>
             <div class="pay-history" id="payHistoryList"></div>
           </div>
+
+          <!-- ✅ BOTÃO EXCLUIR NO FINAL (embaixo de tudo) -->
+          <div class="hr"></div>
+          <div class="modal-section">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+              <h4 class="modal-section__title" style="margin:0;">Ações avançadas</h4>
+
+              <button class="btn btn--danger" type="button" id="btnDeleteLoanBottom">
+                🗑️ Excluir empréstimo
+              </button>
+            </div>
+
+            <div class="muted" style="margin-top:8px;">
+              Só permitido se não houver pagamentos lançados.
+            </div>
+          </div>
+
+
         </div>
       </div>
     `;
@@ -399,6 +653,14 @@
     if (installments) installments.innerHTML = `<div class="muted" style="padding:10px;">Carregando prestações...</div>`;
     if (payHist) payHist.innerHTML = `<div class="muted" style="padding:10px;">Carregando pagamentos...</div>`;
 
+    // botão excluir (final)
+    const btnDeleteLoanBottom = modal.querySelector("#btnDeleteLoanBottom");
+    if (btnDeleteLoanBottom) {
+      btnDeleteLoanBottom.disabled = false;
+      btnDeleteLoanBottom.style.display = ""; // default, depois ajusta pelo status
+      btnDeleteLoanBottom.onclick = null; // limpa
+    }
+
     try {
       const res = await fetch(`/KRAx/public/api.php?route=emprestimos/detalhes&id=${encodeURIComponent(id)}`);
       const json = await res.json();
@@ -415,7 +677,6 @@
       const pagamentos = Array.isArray(dados.pagamentos) ? dados.pagamentos : [];
 
       const pgMaps = buildPagamentoMaps(pagamentos);
-
       const hojeStr = todayISO();
 
       const statusAtual = String(emp.status || "").trim().toUpperCase();
@@ -457,7 +718,7 @@
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
       set("total_juros", moneyFromCents(totalComJurosC));
 
-      // ✅ SINCRONIZA "Pago/Falta" COM O MESMO VALOR DE QUITAÇÃO DO MODAL DE PAGAMENTO
+      // ✅ SINCRONIZA "Pago/Falta"
       const quitNova = calcQuitacaoNova(emp, parcelas, pagamentos);
       let faltaC = toCents(quitNova);
 
@@ -498,10 +759,18 @@
         if (btnPay) btnPay.style.display = "none";
         if (btnQuit) btnQuit.style.display = "none";
         if (btnEdit) btnEdit.style.display = "none";
+        // normalmente quitado já tem pagamento, mas deixo escondido pra não poluir
+        if (btnDeleteLoanBottom) btnDeleteLoanBottom.style.display = "none";
       } else {
         if (btnPay) btnPay.style.display = "";
         if (btnQuit) btnQuit.style.display = "";
         if (btnEdit) btnEdit.style.display = "";
+        if (btnDeleteLoanBottom) btnDeleteLoanBottom.style.display = "";
+      }
+
+      // handler do botão excluir (final)
+      if (btnDeleteLoanBottom && !isQuitado) {
+        btnDeleteLoanBottom.onclick = () => excluirEmprestimoUI(id, modal, cli.nome || "");
       }
 
       const nextAberta = getNextParcelaAberta(parcelas, isQuitado, hojeStr, pgMaps);
@@ -652,7 +921,7 @@
         }
       }
 
-      // histórico pagamentos
+      // histórico pagamentos (✅ com editar/excluir)
       if (payHist) {
         if (!pagamentos.length) {
           payHist.innerHTML = `<div class="muted" style="padding:10px;">Nenhum pagamento registrado.</div>`;
@@ -679,19 +948,45 @@
             const data = formatDateBR(pg.data_pagamento || pg.data);
             const val = money(pg.valor_pago || pg.valor);
 
+            const pgId = String(pg?.id ?? pg?.pagamento_id ?? "").trim();
+            const canAct = !!pgId;
+
             return `
-              <div class="pay-row">
+              <div class="pay-row" data-pagamento-id="${esc(pgId)}">
                 <div class="pay-left">
                   <div class="pay-title">${esc(title)}</div>
                   ${sub ? `<div class="pay-sub">${esc(sub)}</div>` : ``}
                 </div>
-                <div class="pay-right">
+                <div class="pay-right" style="display:flex; align-items:center; gap:10px;">
                   <span>${esc(data)}</span>
                   <span class="pay-value">${esc(val)}</span>
+                  ${canAct ? `
+                    <button class="iconbtn" type="button" data-pay-edit title="Editar pagamento" style="width:34px; height:34px; border-radius:10px;">✏️</button>
+                    <button class="iconbtn" type="button" data-pay-del title="Excluir pagamento" style="width:34px; height:34px; border-radius:10px;">🗑️</button>
+                  ` : ``}
                 </div>
               </div>
             `;
           }).join("");
+
+          payHist.onclick = async (ev) => {
+            const btnEdit = ev.target?.closest?.("[data-pay-edit]");
+            const btnDel = ev.target?.closest?.("[data-pay-del]");
+            if (!btnEdit && !btnDel) return;
+
+            ev.preventDefault();
+            ev.stopPropagation();
+
+            const row = ev.target.closest(".pay-row");
+            const pgId = row ? String(row.getAttribute("data-pagamento-id") || "").trim() : "";
+            if (!pgId) return onError("Não consegui achar o ID do pagamento nessa linha.");
+
+            const pg = pagamentos.find(x => String(x?.id ?? x?.pagamento_id ?? "") === pgId) || null;
+            if (!pg) return onError("Pagamento não encontrado na lista. Reabra o modal.");
+
+            if (btnEdit) await editarPagamentoUI(pg, id, modal, tipoV);
+            else await excluirPagamentoUI(pg, id, modal);
+          };
         }
       }
 

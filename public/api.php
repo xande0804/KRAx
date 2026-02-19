@@ -83,17 +83,30 @@ switch ($route) {
         (new EmprestimoController())->listar();
         break;
 
+    case 'emprestimos/por_cliente':
+        (new EmprestimoController())->porCliente();
+        break;
+
     case 'pagamentos/lancar':
         (new PagamentoController())->lancar();
+        break;
+
+    case 'pagamentos/atualizar':
+        (new PagamentoController())->atualizar();
+        break;
+
+    case 'pagamentos/excluir':
+        (new PagamentoController())->excluir();
         break;
 
     case 'dashboard/resumo':
         (new DashboardController())->resumo();
         break;
 
-    case 'emprestimos/por_cliente':
-        (new EmprestimoController())->porCliente();
+    case 'emprestimos/excluir':
+        (new EmprestimoController())->excluir();
         break;
+
 
     case 'auth/login': {
             $auth = require __DIR__ . '/../app/config/auth.php';
@@ -135,7 +148,6 @@ switch ($route) {
             header('Location: /KRAx/app/views/login.php');
             exit;
         }
-
 
     default:
         header('Content-Type: application/json');

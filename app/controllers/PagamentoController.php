@@ -446,6 +446,180 @@ class PagamentoController
         }
     }
 
+    /**
+     * ✅ Editar pagamento (seguro):
+     * - Permite editar: data_pagamento, valor_pago, observacao, parcela_id (somente se for PARCELA)
+     * - BLOQUEIA: mudança de tipo e edição de QUITACAO/INTEGRAL (por enquanto)
+     * - Reverte/aplica impacto em parcelas quando tipo = PARCELA
+     */
+    public function atualizar(): void
+    {
+        try {
+            $pagamentoId = (int)($_POST['pagamento_id'] ?? 0);
+
+            // campos novos
+            $dataPagamento = trim((string)($_POST['data_pagamento'] ?? ''));
+            if ($dataPagamento === '') $dataPagamento = date('Y-m-d');
+
+            $valor = $this->parseMoneyBR($_POST['valor_pago'] ?? 0);
+            $obs = isset($_POST['observacao']) ? trim((string)$_POST['observacao']) : null;
+
+            $parcelaIdNova = isset($_POST['parcela_id']) && $_POST['parcela_id'] !== ''
+                ? (int)$_POST['parcela_id']
+                : null;
+
+            if ($pagamentoId <= 0) throw new InvalidArgumentException('pagamento_id inválido.');
+            if ($valor <= 0) throw new InvalidArgumentException('valor_pago inválido.');
+
+            $pagDAO = new PagamentoDAO();
+            $empDAO = new EmprestimoDAO();
+
+            $pdo = $pagDAO->getPdo();
+            $pdo->beginTransaction();
+
+            $old = $pagDAO->buscarPorId($pagamentoId);
+            if (!$old) throw new RuntimeException('Pagamento não encontrado.');
+
+            $emprestimoId = (int)($old['emprestimo_id'] ?? 0);
+            $tipo = strtoupper(trim((string)($old['tipo_pagamento'] ?? '')));
+
+            if ($emprestimoId <= 0) throw new RuntimeException('Pagamento inválido (emprestimo_id).');
+
+            // Por segurança, não deixamos editar tipo agora
+            $tipoNovo = strtoupper(trim((string)($_POST['tipo_pagamento'] ?? '')));
+            if ($tipoNovo !== '' && $tipoNovo !== $tipo) {
+                throw new InvalidArgumentException('Não é permitido alterar o tipo do pagamento na edição.');
+            }
+
+            // Bloqueia tipos perigosos
+            if (in_array($tipo, ['QUITACAO', 'INTEGRAL'], true)) {
+                throw new InvalidArgumentException('Edição não permitida para QUITACAO/INTEGRAL. Use correção (estorno + novo).');
+            }
+
+            $oldParcelaId = isset($old['parcela_id']) && $old['parcela_id'] !== null ? (int)$old['parcela_id'] : null;
+            $oldValor = (float)($old['valor_pago'] ?? 0);
+
+            // ===== Reverte impacto antigo em parcela (se tipo PARCELA) =====
+            if ($tipo === 'PARCELA') {
+                if (!$oldParcelaId || $oldParcelaId <= 0) {
+                    throw new RuntimeException('Pagamento PARCELA sem parcela_id (dados inconsistentes).');
+                }
+                $this->ajustarPagamentoNaParcelaTx($pdo, $oldParcelaId, -abs($oldValor));
+            }
+
+            // ===== Aplica impacto novo =====
+            if ($tipo === 'PARCELA') {
+                if (!$parcelaIdNova || $parcelaIdNova <= 0) {
+                    throw new InvalidArgumentException('Para pagamento tipo PARCELA, informe parcela_id.');
+                }
+                $this->ajustarPagamentoNaParcelaTx($pdo, $parcelaIdNova, +abs($valor));
+            } else {
+                // JUROS / EXTRA: não afeta parcelas (e também NÃO mexe no cronograma na edição)
+                $parcelaIdNova = null;
+            }
+
+            // Atualiza registro do pagamento
+            $okUpd = $pagDAO->atualizar(
+                $pagamentoId,
+                $parcelaIdNova,
+                $dataPagamento,
+                (float)$valor,
+                $tipo,
+                $obs
+            );
+
+            if (!$okUpd) {
+                throw new RuntimeException('Falha ao atualizar pagamento.');
+            }
+
+            // Recalcula status do empréstimo (pode reabrir se antes estava QUITADO)
+            $this->recalcularStatusEmprestimoTx($pdo, $empDAO, $emprestimoId);
+
+            $pdo->commit();
+
+            $this->responderJson(true, 'Pagamento atualizado', [
+                'pagamento_id' => $pagamentoId,
+                'emprestimo_id' => $emprestimoId,
+                'tipo_pagamento' => $tipo,
+                'parcela_id' => $parcelaIdNova,
+                'valor_pago' => $valor,
+                'data_pagamento' => $dataPagamento
+            ]);
+        } catch (Exception $e) {
+            // tenta rollback se necessário
+            try {
+                if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+            } catch (Throwable $t) { /* ignora */ }
+
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
+    /**
+     * ✅ Excluir pagamento (seguro):
+     * - Reverte impacto em parcelas (se tipo PARCELA)
+     * - Bloqueia QUITACAO/INTEGRAL por segurança (por enquanto)
+     */
+    public function excluir(): void
+    {
+        try {
+            $pagamentoId = (int)($_POST['pagamento_id'] ?? 0);
+            if ($pagamentoId <= 0) throw new InvalidArgumentException('pagamento_id inválido.');
+
+            $pagDAO = new PagamentoDAO();
+            $empDAO = new EmprestimoDAO();
+
+            $pdo = $pagDAO->getPdo();
+            $pdo->beginTransaction();
+
+            $old = $pagDAO->buscarPorId($pagamentoId);
+            if (!$old) throw new RuntimeException('Pagamento não encontrado.');
+
+            $emprestimoId = (int)($old['emprestimo_id'] ?? 0);
+            $tipo = strtoupper(trim((string)($old['tipo_pagamento'] ?? '')));
+
+            if ($emprestimoId <= 0) throw new RuntimeException('Pagamento inválido (emprestimo_id).');
+
+            if (in_array($tipo, ['QUITACAO', 'INTEGRAL'], true)) {
+                throw new InvalidArgumentException('Exclusão não permitida para QUITACAO/INTEGRAL. Use correção (estorno + novo).');
+            }
+
+            $oldParcelaId = isset($old['parcela_id']) && $old['parcela_id'] !== null ? (int)$old['parcela_id'] : null;
+            $oldValor = (float)($old['valor_pago'] ?? 0);
+
+            // reverte impacto
+            if ($tipo === 'PARCELA') {
+                if (!$oldParcelaId || $oldParcelaId <= 0) {
+                    throw new RuntimeException('Pagamento PARCELA sem parcela_id (dados inconsistentes).');
+                }
+                $this->ajustarPagamentoNaParcelaTx($pdo, $oldParcelaId, -abs($oldValor));
+            }
+
+            $okDel = $pagDAO->excluir($pagamentoId);
+            if (!$okDel) throw new RuntimeException('Falha ao excluir pagamento.');
+
+            $this->recalcularStatusEmprestimoTx($pdo, $empDAO, $emprestimoId);
+
+            $pdo->commit();
+
+            $this->responderJson(true, 'Pagamento excluído', [
+                'pagamento_id' => $pagamentoId,
+                'emprestimo_id' => $emprestimoId,
+                'tipo_pagamento' => $tipo
+            ]);
+        } catch (Exception $e) {
+            try {
+                if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+            } catch (Throwable $t) { /* ignora */ }
+
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
     private function criarPagamento(
         PagamentoDAO $pagDAO,
         int $emprestimoId,
@@ -465,6 +639,87 @@ class PagamentoController
         $p->setObservacao($obs);
 
         return $pagDAO->criar($p);
+    }
+
+    /**
+     * Ajuste atômico de valor_pago/status/pago_em usando o MESMO PDO da transação.
+     * Delta pode ser + ou -.
+     */
+    private function ajustarPagamentoNaParcelaTx(PDO $pdo, int $parcelaId, float $delta): void
+    {
+        if ($parcelaId <= 0) throw new InvalidArgumentException('parcela_id inválido.');
+        if (!is_finite($delta) || $delta == 0.0) return;
+
+        $stmtSel = $pdo->prepare("SELECT valor_parcela, COALESCE(valor_pago,0) AS valor_pago, pago_em
+                                  FROM parcelas WHERE id = :id LIMIT 1");
+        $stmtSel->execute([':id' => $parcelaId]);
+        $row = $stmtSel->fetch(PDO::FETCH_ASSOC);
+        if (!$row) throw new RuntimeException('Parcela não encontrada.');
+
+        $valorParcela = round((float)($row['valor_parcela'] ?? 0), 2);
+        $valorAtual   = round((float)($row['valor_pago'] ?? 0), 2);
+
+        $novo = round($valorAtual + $delta, 2);
+        if ($novo < 0) $novo = 0.0;
+        if ($valorParcela > 0 && $novo > $valorParcela) $novo = $valorParcela;
+
+        if ($valorParcela > 0 && $novo + 0.00001 >= $valorParcela) {
+            $novo = $valorParcela;
+            $status = 'PAGA';
+
+            $stmtUpd = $pdo->prepare("
+                UPDATE parcelas
+                SET valor_pago = :vp,
+                    status = :st,
+                    pago_em = CASE WHEN pago_em IS NULL THEN NOW() ELSE pago_em END
+                WHERE id = :id
+            ");
+            $stmtUpd->execute([':vp' => $novo, ':st' => $status, ':id' => $parcelaId]);
+            return;
+        }
+
+        if ($novo > 0) {
+            $status = 'PARCIAL';
+            $stmtUpd = $pdo->prepare("
+                UPDATE parcelas
+                SET valor_pago = :vp,
+                    status = :st,
+                    pago_em = NULL
+                WHERE id = :id
+            ");
+            $stmtUpd->execute([':vp' => $novo, ':st' => $status, ':id' => $parcelaId]);
+            return;
+        }
+
+        $status = 'ABERTA';
+        $stmtUpd = $pdo->prepare("
+            UPDATE parcelas
+            SET valor_pago = :vp,
+                status = :st,
+                pago_em = NULL
+            WHERE id = :id
+        ");
+        $stmtUpd->execute([':vp' => 0, ':st' => $status, ':id' => $parcelaId]);
+    }
+
+    /**
+     * Recalcula status do empréstimo:
+     * - se existir alguma parcela com valor_pago < valor_parcela => ATIVO
+     * - senão => QUITADO
+     */
+    private function recalcularStatusEmprestimoTx(PDO $pdo, EmprestimoDAO $empDAO, int $emprestimoId): void
+    {
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) AS abertas
+            FROM parcelas
+            WHERE emprestimo_id = :eid
+              AND ROUND(COALESCE(valor_pago,0),2) < ROUND(COALESCE(valor_parcela,0),2)
+        ");
+        $stmt->execute([':eid' => $emprestimoId]);
+        $abertas = (int)($stmt->fetchColumn() ?? 0);
+
+        $novoStatus = ($abertas > 0) ? 'ATIVO' : 'QUITADO';
+        $empDAO->atualizarStatus($emprestimoId, $novoStatus);
     }
 
     private function parseMoneyBR($v): float

@@ -84,24 +84,16 @@
   }
 
   // ✅ NOVO: normaliza o que vier do backend pra caber no <input type="date">
-  // Aceita:
-  // - "2026-02-15"
-  // - "2026-02-15 00:00:00"
-  // - "2026-02-15T00:00:00"
-  // - "15/02/2026"
   function normalizeDateForInput(raw) {
     const s = String(raw ?? "").trim();
     if (!s) return "";
 
-    // já está perfeito
     if (isDateYMD(s)) return s;
 
-    // "YYYY-MM-DD ..." ou "YYYY-MM-DDT..."
     if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
       return s.slice(0, 10);
     }
 
-    // "DD/MM/YYYY"
     const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (m) {
       const dd = m[1], mm = m[2], yyyy = m[3];
@@ -134,7 +126,6 @@
         inputWeek.placeholder = "1 a 6";
       }
     } else {
-      // DIARIO ou MENSAL → regra é DATA (primeiro vencimento)
       const nomeTipo = t || "—";
       if (label) label.textContent = `Primeiro vencimento (${nomeTipo})`;
       if (hint) hint.textContent = "Selecione uma data (YYYY-MM-DD).";
@@ -142,6 +133,73 @@
       if (boxDate) boxDate.style.display = "";
       if (inputDate) inputDate.placeholder = "YYYY-MM-DD";
     }
+  }
+
+  // =========================
+  // ✅ OPTION D (ALERTA IMPACTO)
+  // =========================
+  function onlyDate(yyyyMMdd) {
+    return String(yyyyMMdd || "").slice(0, 10);
+  }
+
+  function toCents(v) {
+    const n = toNumber(v);
+    return Math.round(n * 100);
+  }
+
+  function moneyFromCents(c) {
+    return money((Number(c) || 0) / 100);
+  }
+
+  // usa parcelas do backend pra estimar:
+  // - quantas estão pagas
+  // - quanto do principal já foi amortizado (MENSAL: valor_pago cobre jurosUnit primeiro)
+  function buildMensalSnapshot(principal, jurosPct, qtdAtual, parcelasArr) {
+    const p = toNumber(principal);
+    const q = Math.max(1, parseInt(qtdAtual || 1, 10) || 1);
+    const j = toNumber(jurosPct);
+
+    const jurosUnit = p * (j / 100);
+    const amortUnit = p / q;
+
+    let pagasCheias = 0;
+    let principalPago = 0;
+
+    const parcelas = Array.isArray(parcelasArr) ? parcelasArr : [];
+
+    for (const par of parcelas) {
+      const st = String(par.status || "").trim().toUpperCase();
+      const vpar = toNumber(par.valor_parcela ?? 0);
+      const vp = toNumber(par.valor_pago ?? 0);
+
+      const pagaCheia = (st === "PAGA" || st === "QUITADA") || (vpar > 0 && vp >= vpar);
+      if (pagaCheia) {
+        pagasCheias++;
+        // M1: considera amortUnit por parcela paga cheia
+        principalPago += amortUnit;
+        continue;
+      }
+
+      // parcial: paga primeiro jurosUnit, o que passar é principal (limitado ao amortUnit)
+      if (vp > 0) {
+        const amortParcial = Math.max(0, Math.min(amortUnit, vp - jurosUnit));
+        principalPago += amortParcial;
+      }
+    }
+
+    // limita
+    principalPago = Math.max(0, Math.min(p, principalPago));
+    const principalRestante = Math.max(0, p - principalPago);
+
+    return { jurosUnit, amortUnit, pagasCheias, principalPago, principalRestante };
+  }
+
+  function calcTotalContratoMensal(principal, jurosPct, qtdTotal) {
+    const p = toNumber(principal);
+    const q = Math.max(1, parseInt(qtdTotal || 1, 10) || 1);
+    const j = toNumber(jurosPct);
+    const jurosUnit = p * (j / 100);
+    return p + jurosUnit * q;
   }
 
   function injectModalEditarEmprestimo() {
@@ -389,6 +447,66 @@
           }
         }
 
+        // =========================
+        // ✅ ALERTA (OPÇÃO D): impacto no total final
+        // =========================
+        // Só faz “alerta inteligente” no MENSAL (onde faz sentido no teu modelo de juros por parcela)
+        // Nos outros tipos, mantém somente o fluxo normal.
+        try {
+          if (tipoV === "MENSAL" && modal._state && modal._state.emp && Array.isArray(modal._state.parcelas)) {
+            const principal = toNumber(modal._state.emp.valor_principal ?? modal.dataset.principal ?? 0);
+
+            const qtdAtual = toNumber(modal._state.emp.quantidade_parcelas ?? modal.dataset.snapshotQtd ?? 0) || toNumber(modal.dataset.snapshotQtd || 1);
+            const jurosAtual = toNumber(modal._state.emp.porcentagem_juros ?? modal.dataset.snapshotJuros ?? 0) || toNumber(modal.dataset.snapshotJuros || 0);
+
+            const qtdNova = toNumber(modal.querySelector(`[data-edit="quantidade_parcelas"]`)?.value || 1);
+            const jurosNovo = toNumber(modal.querySelector(`[data-edit="porcentagem_juros"]`)?.value || 0);
+
+            // calcula totais (contrato) no teu modelo
+            const totalAntes = calcTotalContratoMensal(principal, jurosAtual, qtdAtual);
+            const totalDepois = calcTotalContratoMensal(principal, jurosNovo, qtdNova);
+            const delta = totalDepois - totalAntes;
+
+            // estimativa das parcelas restantes no M1 (principal restante redistribui)
+            const snap = buildMensalSnapshot(principal, jurosAtual, qtdAtual, modal._state.parcelas);
+
+            const pagasCheias = snap.pagasCheias;
+            const restAntes = Math.max(0, qtdAtual - pagasCheias);
+            const restDepois = Math.max(0, qtdNova - pagasCheias);
+
+            const jurosUnitDepois = principal * (jurosNovo / 100);
+
+            let novaParcelaEst = null;
+            if (restDepois > 0) {
+              const amortNova = snap.principalRestante / restDepois;
+              novaParcelaEst = amortNova + jurosUnitDepois;
+            }
+
+            const msg =
+              "⚠️ Renegociação vai alterar o total final\n\n" +
+              `• Tipo: MENSAL\n` +
+              `• Parcelas totais: ${qtdAtual} → ${qtdNova}\n` +
+              `• Juros (%): ${jurosAtual} → ${jurosNovo}\n` +
+              `• Total do contrato: ${money(totalAntes)} → ${money(totalDepois)} ` +
+              `(${delta >= 0 ? "+" : ""}${money(delta)})\n\n` +
+              `• Parcelas já pagas (cheias): ${pagasCheias}\n` +
+              `• Restantes antes: ${restAntes}\n` +
+              `• Restantes depois: ${restDepois}\n` +
+              (novaParcelaEst != null ? `• Estimativa nova parcela restante: ${money(novaParcelaEst)}\n` : "") +
+              "\nContinuar?";
+
+            // ✅ este é o “alerta” da opção D (um confirm único antes de salvar)
+            const ok = confirm(msg);
+            if (!ok) {
+              if (btn) btn.disabled = false;
+              return;
+            }
+          }
+        } catch (e2) {
+          // se falhar o alerta, não bloqueia salvamento
+          console.warn("Falhou alerta de impacto (opção D). Seguindo sem alert.", e2);
+        }
+
         const fd = new FormData(form);
         fd.set("recalcular_parcelas", "1");
 
@@ -413,6 +531,17 @@
           onError(json.mensagem || "Erro ao atualizar empréstimo");
           return;
         }
+
+        if (json.dados && typeof json.dados.total_antigo === "number") {
+          const d = json.dados;
+          alert(
+            `Renegociação aplicada!\n\n` +
+            `Total antigo: ${money(d.total_antigo)}\n` +
+            `Total novo:   ${money(d.total_novo)}\n` +
+            `Diferença:    ${money(d.diferenca)}`
+          );
+        }
+        
 
         GestorModal.close("modalEditarEmprestimo");
         onSuccess(json.mensagem || "Empréstimo atualizado!");
@@ -496,6 +625,11 @@
         if (parsed.ok && parsed.json?.ok) {
           const emp = parsed.json?.dados?.emprestimo || {};
           const cli = parsed.json?.dados?.cliente || {};
+          const parcelas = Array.isArray(parsed.json?.dados?.parcelas) ? parsed.json.dados.parcelas : [];
+          const pagamentos = Array.isArray(parsed.json?.dados?.pagamentos) ? parsed.json.dados.pagamentos : [];
+
+          // ✅ guarda estado pro alerta (opção D)
+          modal._state = { emp, cli, parcelas, pagamentos };
 
           modal.dataset.principal = String(emp.valor_principal ?? "");
           modal.dataset.tipoVencimento = String(emp.tipo_vencimento ?? "");
@@ -527,6 +661,20 @@
         console.error(e);
       }
     } else {
+      // se veio tudo no payload, ainda assim tentamos ter _state mínimo pra alerta
+      modal._state = modal._state || {
+        emp: {
+          valor_principal: modal.dataset.principal,
+          tipo_vencimento: modal.dataset.tipoVencimento,
+          quantidade_parcelas: payload?.quantidadeParcelas,
+          porcentagem_juros: payload?.jurosPct,
+          regra_vencimento: payloadRegra,
+          cliente_id: payload?.clienteId
+        },
+        parcelas: [],
+        pagamentos: []
+      };
+
       const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
 
       setEdit("tipo_vencimento", String(modal.dataset.tipoVencimento || "—"));
