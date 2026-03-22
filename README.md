@@ -38,17 +38,3 @@ O projeto foi pensado para atender cenários onde é necessário ter mais contro
 ## Estrutura do projeto
 
 O sistema foi organizado para separar responsabilidades entre interface, regras de negócio e persistência de dados, facilitando manutenção e evolução do código.
-
-## Como executar o projeto
-
-### Pré-requisitos
-
-- PHP
-- MySQL
-- Servidor local (XAMPP, WAMP ou Laragon)
-
-### Passos
-
-1. Clone este repositório:
-   ```bash
-   git clone <URL_DO_REPOSITORIO>
