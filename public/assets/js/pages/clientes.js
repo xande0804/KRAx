@@ -21,26 +21,18 @@
     return String(v ?? "").replace(/\D+/g, "");
   }
 
-  // ✅ Validação + normalização BR p/ wa.me
-  // Aceita:
-  // - 10 ou 11 dígitos (DDD + número) -> vira 55 + digits
-  // - 12 ou 13 dígitos começando com 55 -> mantém
-  // Caso contrário: inválido
   function toWaNumberOrEmpty(phoneRaw) {
     const d = onlyDigits(phoneRaw);
     if (!d) return "";
 
-    // já com DDI BR
     if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
 
-    // sem DDI, padrão BR
     if (d.length === 10 || d.length === 11) return "55" + d;
 
-    return ""; // inválido
+    return "";
   }
 
   function wppSvg() {
-    // SVG "oficial" (marca WhatsApp) em formato ícone circular
     return `
       <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
         <path class="wpp-bg" d="M16 2.667C8.636 2.667 2.667 8.636 2.667 16c0 2.343.607 4.634 1.759 6.661L3.2 29.333l6.829-1.2A13.28 13.28 0 0 0 16 29.333c7.364 0 13.333-5.969 13.333-13.333C29.333 8.636 23.364 2.667 16 2.667z"/>
@@ -50,12 +42,26 @@
   }
 
   function lockSvg() {
-    // Cadeado simples (inline) p/ indicar bloqueado
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M12 1a5 5 0 00-5 5v3H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2v-9a2 2 0 00-2-2h-1V6a5 5 0 00-5-5zm-3 8V6a3 3 0 116 0v3H9zm3 4a2 2 0 012 2 2 2 0 01-1 1.732V19a1 1 0 11-2 0v-2.268A2 2 0 0110 15a2 2 0 012-2z"/>
       </svg>
     `;
+  }
+
+  function normalizarGrupo(grupo) {
+    const g = String(grupo ?? "PADRAO").trim().toUpperCase();
+    return g || "PADRAO";
+  }
+
+  function badgeGrupoHtml(grupo) {
+    const g = normalizarGrupo(grupo);
+
+    if (g === "MARIA") {
+      return `<span class="badge badge--maria" title="Cliente do grupo Maria">Novo</span>`;
+    }
+
+    return "";
   }
 
   function render(clientes) {
@@ -66,15 +72,16 @@
       const telefoneRaw = c.telefone || "";
       const telefone = escapeHtml(telefoneRaw || "—");
       const cpf = escapeHtml(c.cpf || "");
+      const grupo = normalizarGrupo(c.grupo);
 
       const wa = toWaNumberOrEmpty(telefoneRaw);
       const waLink = wa ? `https://wa.me/${wa}` : "";
 
       const article = document.createElement("article");
       article.className = "list-item";
-      article.setAttribute("data-filter", `${nome} ${telefone} ${cpf}`.toLowerCase());
+      article.setAttribute("data-filter", `${nome} ${telefone} ${cpf} ${grupo}`.toLowerCase());
+      article.setAttribute("data-grupo", grupo);
 
-      // ✅ WhatsApp ou bloqueado (cadeado)
       const wppBtn = waLink
         ? `
           <a
@@ -106,6 +113,7 @@
               ? `<span class="badge badge--active">Empréstimo ativo</span>`
               : `<span class="badge">Sem empréstimo</span>`
             }
+            ${badgeGrupoHtml(grupo)}
           </div>
           <div class="list-item__sub">${telefone}</div>
         </div>
@@ -117,7 +125,14 @@
             👁️ Detalhes
           </button>
 
-          <button class="linkbtn" type="button" data-modal-open="novoEmprestimo" data-cliente-id="${c.id}" data-cliente-nome="${nome}">
+          <button
+            class="linkbtn"
+            type="button"
+            data-modal-open="novoEmprestimo"
+            data-cliente-id="${c.id}"
+            data-cliente-nome="${nome}"
+            data-cliente-grupo="${grupo}"
+          >
             💸 Empréstimo
           </button>
         </div>

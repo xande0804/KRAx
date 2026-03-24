@@ -7,6 +7,7 @@ $pageCss = [
   'badges',
   'tabs',
   'emprestimo-detalhes',
+  'badges',
 ];
 
 $pageJs = [

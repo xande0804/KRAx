@@ -15,18 +15,37 @@ class ClienteDAO
     // CREATE
     public function criar(Cliente $cliente): int
     {
-        $sql = "INSERT INTO clientes (nome, cpf, telefone, endereco, profissao, placa_carro, indicacao)
-                VALUES (:nome, :cpf, :telefone, :endereco, :profissao, :placa_carro, :indicacao)";
+        $sql = "INSERT INTO clientes (
+                    nome,
+                    cpf,
+                    telefone,
+                    endereco,
+                    profissao,
+                    placa_carro,
+                    indicacao,
+                    grupo
+                )
+                VALUES (
+                    :nome,
+                    :cpf,
+                    :telefone,
+                    :endereco,
+                    :profissao,
+                    :placa_carro,
+                    :indicacao,
+                    :grupo
+                )";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
-            ':nome'       => $cliente->getNome(),
-            ':cpf'        => $cliente->getCpf(),
-            ':telefone'   => $cliente->getTelefone(),
-            ':endereco'   => $cliente->getEndereco(),
-            ':profissao'  => $cliente->getProfissao(),
+            ':nome'        => $cliente->getNome(),
+            ':cpf'         => $cliente->getCpf(),
+            ':telefone'    => $cliente->getTelefone(),
+            ':endereco'    => $cliente->getEndereco(),
+            ':profissao'   => $cliente->getProfissao(),
             ':placa_carro' => $cliente->getPlacaCarro(),
-            ':indicacao'  => $cliente->getIndicacao(),
+            ':indicacao'   => $cliente->getIndicacao(),
+            ':grupo'       => $cliente->getGrupo(),
         ]);
 
         return (int)$this->pdo->lastInsertId();
@@ -36,28 +55,37 @@ class ClienteDAO
     public function listar(): array
     {
         $sql = "SELECT
-                c.*,
-                CASE
-                    WHEN EXISTS (
-                      SELECT 1
-                      FROM emprestimos e
-                      WHERE e.cliente_id = c.id
-                        AND e.status = 'ATIVO'
-                    ) THEN 1
-                    ELSE 0
-                END AS tem_emprestimo_ativo
-            FROM clientes c
-            ORDER BY c.id DESC";
+                    c.*,
+                    COALESCE(c.grupo, 'PADRAO') AS grupo,
+                    CASE
+                        WHEN EXISTS (
+                            SELECT 1
+                            FROM emprestimos e
+                            WHERE e.cliente_id = c.id
+                              AND e.status = 'ATIVO'
+                        ) THEN 1
+                        ELSE 0
+                    END AS tem_emprestimo_ativo
+                FROM clientes c
+                ORDER BY c.id DESC";
 
         $stmt = $this->pdo->query($sql);
-        return $stmt->fetchAll(); // <- mantém tem_emprestimo_ativo
+        return $stmt->fetchAll();
     }
-
 
     // READ (buscar por id)
     public function buscarPorId(int $id): ?Cliente
     {
-        $sql = "SELECT id, nome, cpf, telefone, endereco, profissao, placa_carro, indicacao
+        $sql = "SELECT
+                    id,
+                    nome,
+                    cpf,
+                    telefone,
+                    endereco,
+                    profissao,
+                    placa_carro,
+                    indicacao,
+                    COALESCE(grupo, 'PADRAO') AS grupo
                 FROM clientes
                 WHERE id = :id
                 LIMIT 1";
@@ -66,15 +94,26 @@ class ClienteDAO
         $stmt->execute([':id' => $id]);
 
         $row = $stmt->fetch();
-        if (!$row) return null;
+        if (!$row) {
+            return null;
+        }
 
         return $this->mapearParaEntity($row);
     }
 
-    // READ (buscar por cpf) — útil pra validação/duplicidade
+    // READ (buscar por cpf)
     public function buscarPorCpf(string $cpf): ?Cliente
     {
-        $sql = "SELECT id, nome, cpf, telefone, endereco, profissao, placa_carro, indicacao
+        $sql = "SELECT
+                    id,
+                    nome,
+                    cpf,
+                    telefone,
+                    endereco,
+                    profissao,
+                    placa_carro,
+                    indicacao,
+                    COALESCE(grupo, 'PADRAO') AS grupo
                 FROM clientes
                 WHERE cpf = :cpf
                 LIMIT 1";
@@ -83,7 +122,9 @@ class ClienteDAO
         $stmt->execute([':cpf' => $cpf]);
 
         $row = $stmt->fetch();
-        if (!$row) return null;
+        if (!$row) {
+            return null;
+        }
 
         return $this->mapearParaEntity($row);
     }
@@ -102,19 +143,21 @@ class ClienteDAO
                     endereco = :endereco,
                     profissao = :profissao,
                     placa_carro = :placa_carro,
-                    indicacao = :indicacao
+                    indicacao = :indicacao,
+                    grupo = :grupo
                 WHERE id = :id";
 
         $stmt = $this->pdo->prepare($sql);
         return $stmt->execute([
-            ':id'         => $cliente->getId(),
-            ':nome'       => $cliente->getNome(),
-            ':cpf'        => $cliente->getCpf(),
-            ':telefone'   => $cliente->getTelefone(),
-            ':endereco'   => $cliente->getEndereco(),
-            ':profissao'  => $cliente->getProfissao(),
+            ':id'          => $cliente->getId(),
+            ':nome'        => $cliente->getNome(),
+            ':cpf'         => $cliente->getCpf(),
+            ':telefone'    => $cliente->getTelefone(),
+            ':endereco'    => $cliente->getEndereco(),
+            ':profissao'   => $cliente->getProfissao(),
             ':placa_carro' => $cliente->getPlacaCarro(),
-            ':indicacao'  => $cliente->getIndicacao(),
+            ':indicacao'   => $cliente->getIndicacao(),
+            ':grupo'       => $cliente->getGrupo(),
         ]);
     }
 
@@ -138,13 +181,14 @@ class ClienteDAO
         $c->setProfissao($row['profissao'] ?? null);
         $c->setPlacaCarro($row['placa_carro'] ?? null);
         $c->setIndicacao($row['indicacao'] ?? null);
+        $c->setGrupo($row['grupo'] ?? 'PADRAO');
         return $c;
     }
-    public function contarTodos(): int
-{
-    $sql = "SELECT COUNT(*) AS total FROM clientes";
-    $stmt = $this->pdo->query($sql);
-    return (int)$stmt->fetchColumn();
-}
 
+    public function contarTodos(): int
+    {
+        $sql = "SELECT COUNT(*) AS total FROM clientes";
+        $stmt = $this->pdo->query($sql);
+        return (int)$stmt->fetchColumn();
+    }
 }

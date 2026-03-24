@@ -28,6 +28,18 @@
   color: #991b1b;
 }
 
+.badge--active{
+  background: #e0f2fe;
+  border-color: #bae6fd;
+  color: #0369a1;
+}
+
+.badge--maria{
+  background: #f3e8ff;
+  border-color: #d8b4fe;
+  color: #6b21a8;
+}
+
 /* bolinha verde do item quitado */
 .status-dot{
   width: 18px;
@@ -36,6 +48,7 @@
   border: 2px solid var(--border);
   display:inline-block;
 }
+
 .status-dot--success{
   background: #22c55e;
   border-color: #bbf7d0;

@@ -16,6 +16,7 @@ class Emprestimo
     private ?string $regraVencimento = null;
 
     private string $status = 'ATIVO'; // ATIVO | QUITADO | CANCELADO
+    private string $grupo = 'PADRAO'; // PADRAO | MARIA
 
     // ===== GETTERS =====
     public function getId(): ?int
@@ -63,6 +64,21 @@ class Emprestimo
         return $this->status;
     }
 
+    public function getGrupo(): string
+    {
+        return $this->grupo;
+    }
+
+    public function isGrupoMaria(): bool
+    {
+        return $this->grupo === 'MARIA';
+    }
+
+    public function isGrupoPadrao(): bool
+    {
+        return $this->grupo === 'PADRAO';
+    }
+
     // ===== SETTERS =====
     public function setId(int $id): void
     {
@@ -71,34 +87,44 @@ class Emprestimo
 
     public function setClienteId(int $clienteId): void
     {
-        if ($clienteId <= 0) throw new InvalidArgumentException('cliente_id inválido.');
+        if ($clienteId <= 0) {
+            throw new InvalidArgumentException('cliente_id inválido.');
+        }
         $this->clienteId = $clienteId;
     }
 
     public function setDataEmprestimo(string $dataEmprestimo): void
     {
         $dataEmprestimo = trim($dataEmprestimo);
-        if ($dataEmprestimo === '') throw new InvalidArgumentException('data_emprestimo é obrigatória.');
+        if ($dataEmprestimo === '') {
+            throw new InvalidArgumentException('data_emprestimo é obrigatória.');
+        }
         $this->dataEmprestimo = $dataEmprestimo;
     }
 
     public function setValorPrincipal($valorPrincipal): void
     {
         $valor = (float)$valorPrincipal;
-        if ($valor <= 0) throw new InvalidArgumentException('valor_principal inválido.');
+        if ($valor <= 0) {
+            throw new InvalidArgumentException('valor_principal inválido.');
+        }
         $this->valorPrincipal = $valor;
     }
 
     public function setPorcentagemJuros($porcentagemJuros): void
     {
         $valor = (float)$porcentagemJuros;
-        if ($valor < 0) throw new InvalidArgumentException('porcentagem_juros inválida.');
+        if ($valor < 0) {
+            throw new InvalidArgumentException('porcentagem_juros inválida.');
+        }
         $this->porcentagemJuros = $valor;
     }
 
     public function setQuantidadeParcelas(int $quantidadeParcelas): void
     {
-        if ($quantidadeParcelas <= 0) throw new InvalidArgumentException('quantidade_parcelas inválida.');
+        if ($quantidadeParcelas <= 0) {
+            throw new InvalidArgumentException('quantidade_parcelas inválida.');
+        }
         $this->quantidadeParcelas = $quantidadeParcelas;
     }
 
@@ -131,5 +157,21 @@ class Emprestimo
             throw new InvalidArgumentException('status inválido.');
         }
         $this->status = $status;
+    }
+
+    public function setGrupo(?string $grupo): void
+    {
+        $grupo = strtoupper(trim((string)$grupo));
+
+        if ($grupo === '') {
+            $grupo = 'PADRAO';
+        }
+
+        $permitidos = ['PADRAO', 'MARIA'];
+        if (!in_array($grupo, $permitidos, true)) {
+            throw new InvalidArgumentException('grupo inválido.');
+        }
+
+        $this->grupo = $grupo;
     }
 }
