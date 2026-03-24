@@ -4,6 +4,7 @@ $activePage = 'inicio';
 $pageTitle  = 'GestorPro • Início';
 
 $pageCss = [
+  'badges',
   'cards', // tem os cards stat + action-card
 ];
 

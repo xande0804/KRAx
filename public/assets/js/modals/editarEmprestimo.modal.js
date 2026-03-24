@@ -28,6 +28,10 @@
       .replaceAll("'", "&#039;");
   }
 
+  function normalizarGrupo(v) {
+    return String(v || "").trim().toUpperCase() === "MARIA" ? "MARIA" : "PADRAO";
+  }
+
   async function safeReadJson(res) {
     const text = await res.text();
     try {
@@ -83,7 +87,6 @@
     return /^\d{4}-\d{2}-\d{2}$/.test(String(s || "").trim());
   }
 
-  // ✅ NOVO: normaliza o que vier do backend pra caber no <input type="date">
   function normalizeDateForInput(raw) {
     const s = String(raw ?? "").trim();
     if (!s) return "";
@@ -135,9 +138,6 @@
     }
   }
 
-  // =========================
-  // ✅ OPTION D (ALERTA IMPACTO)
-  // =========================
   function onlyDate(yyyyMMdd) {
     return String(yyyyMMdd || "").slice(0, 10);
   }
@@ -151,9 +151,6 @@
     return money((Number(c) || 0) / 100);
   }
 
-  // usa parcelas do backend pra estimar:
-  // - quantas estão pagas
-  // - quanto do principal já foi amortizado (MENSAL: valor_pago cobre jurosUnit primeiro)
   function buildMensalSnapshot(principal, jurosPct, qtdAtual, parcelasArr) {
     const p = toNumber(principal);
     const q = Math.max(1, parseInt(qtdAtual || 1, 10) || 1);
@@ -175,19 +172,16 @@
       const pagaCheia = (st === "PAGA" || st === "QUITADA") || (vpar > 0 && vp >= vpar);
       if (pagaCheia) {
         pagasCheias++;
-        // M1: considera amortUnit por parcela paga cheia
         principalPago += amortUnit;
         continue;
       }
 
-      // parcial: paga primeiro jurosUnit, o que passar é principal (limitado ao amortUnit)
       if (vp > 0) {
         const amortParcial = Math.max(0, Math.min(amortUnit, vp - jurosUnit));
         principalPago += amortParcial;
       }
     }
 
-    // limita
     principalPago = Math.max(0, Math.min(p, principalPago));
     const principalRestante = Math.max(0, p - principalPago);
 
@@ -215,7 +209,7 @@
         <header class="modal__header">
           <div>
             <h3 class="modal__title">Editar empréstimo</h3>
-            <p class="modal__subtitle">Ajuste parcelas, juros e vencimento quando o cliente renegociar.</p>
+            <p class="modal__subtitle">Ajuste parcelas, juros, vencimento e grupo quando o cliente renegociar.</p>
           </div>
           <button class="iconbtn" type="button" data-modal-close="modalEditarEmprestimo">×</button>
         </header>
@@ -223,11 +217,19 @@
         <form class="modal__body" id="formEditarEmprestimo">
           <input type="hidden" name="emprestimo_id" data-edit="emprestimo_id" />
           <input type="hidden" name="recalcular_parcelas" value="1" />
+          <input type="hidden" name="grupo" data-edit="grupo_hidden" value="PADRAO" />
 
           <div class="form-grid">
             <div class="field form-span-2">
               <label>Cliente</label>
               <input readonly data-edit="cliente_nome" value="—" />
+            </div>
+
+            <div class="field form-span-2">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" data-edit="grupo_maria_check" />
+                <span>Adicionar este empréstimo ao grupo Novo</span>
+              </label>
             </div>
 
             <div class="field">
@@ -327,7 +329,11 @@
       if (!el) return;
       const tag = (el.tagName || "").toUpperCase();
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") {
-        el.value = value ?? "";
+        if (el.type === "checkbox") {
+          el.checked = !!value;
+        } else {
+          el.value = value ?? "";
+        }
       } else {
         el.textContent = value ?? "";
       }
@@ -338,12 +344,21 @@
       if (el) el.innerHTML = html || "";
     }
 
+    function syncGrupoHidden() {
+      const check = modal.querySelector('[data-edit="grupo_maria_check"]');
+      const hidden = modal.querySelector('[data-edit="grupo_hidden"]');
+      const grupo = check?.checked ? "MARIA" : "PADRAO";
+      if (hidden) hidden.value = grupo;
+      return grupo;
+    }
+
     function refreshPreview() {
       const principal = toNumber(modal.dataset.principal || 0);
       const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
 
       const qtd = toNumber(modal.querySelector(`[data-edit="quantidade_parcelas"]`)?.value || 1);
       const jurosPct = toNumber(modal.querySelector(`[data-edit="porcentagem_juros"]`)?.value || 0);
+      const grupo = syncGrupoHidden();
 
       const c = calcPreview(principal, jurosPct, qtd, tipoV);
 
@@ -356,6 +371,7 @@
         <div><strong>Prévia:</strong></div>
         <div style="margin-top:6px;">
           <div><strong>Tipo:</strong> ${esc(tipoV || "—")}</div>
+          <div><strong>Grupo:</strong> ${esc(grupo)}</div>
           <div><strong>Total c/ juros:</strong> ${esc(money(c.totalComJuros))}</div>
           <div><strong>Prestação sugerida:</strong> ${esc(parcelasTxt)}</div>
         </div>
@@ -386,11 +402,13 @@
       const juros = String(modal.querySelector(`[data-edit="porcentagem_juros"]`)?.value ?? "").trim();
       const obs = String(modal.querySelector(`[data-edit="observacao"]`)?.value ?? "").trim();
       const regra = String(modal.querySelector('[data-edit="regra_vencimento_hidden"]')?.value ?? "").trim();
+      const grupo = String(modal.querySelector('[data-edit="grupo_hidden"]')?.value ?? "PADRAO").trim();
 
       modal.dataset.snapshotQtd = qtd;
       modal.dataset.snapshotJuros = juros;
       modal.dataset.snapshotObs = obs;
       modal.dataset.snapshotRegra = regra;
+      modal.dataset.snapshotGrupo = grupo;
     }
 
     function isUnchanged() {
@@ -398,12 +416,14 @@
       const juros = String(modal.querySelector(`[data-edit="porcentagem_juros"]`)?.value ?? "").trim();
       const obs = String(modal.querySelector(`[data-edit="observacao"]`)?.value ?? "").trim();
       const regra = String(modal.querySelector('[data-edit="regra_vencimento_hidden"]')?.value ?? "").trim();
+      const grupo = String(modal.querySelector('[data-edit="grupo_hidden"]')?.value ?? "PADRAO").trim();
 
       return (
         qtd === String(modal.dataset.snapshotQtd || "") &&
         juros === String(modal.dataset.snapshotJuros || "") &&
         obs === String(modal.dataset.snapshotObs || "") &&
-        regra === String(modal.dataset.snapshotRegra || "")
+        regra === String(modal.dataset.snapshotRegra || "") &&
+        grupo === String(modal.dataset.snapshotGrupo || "")
       );
     }
 
@@ -416,8 +436,8 @@
         if (btn) btn.disabled = true;
 
         const regra = syncHiddenRegra();
+        syncGrupoHidden();
 
-        // ✅ se não mudou nada, Salvar vira Cancelar
         if (isUnchanged()) {
           if (btn) btn.disabled = false;
           GestorModal.close("modalEditarEmprestimo");
@@ -447,11 +467,6 @@
           }
         }
 
-        // =========================
-        // ✅ ALERTA (OPÇÃO D): impacto no total final
-        // =========================
-        // Só faz “alerta inteligente” no MENSAL (onde faz sentido no teu modelo de juros por parcela)
-        // Nos outros tipos, mantém somente o fluxo normal.
         try {
           if (tipoV === "MENSAL" && modal._state && modal._state.emp && Array.isArray(modal._state.parcelas)) {
             const principal = toNumber(modal._state.emp.valor_principal ?? modal.dataset.principal ?? 0);
@@ -462,12 +477,10 @@
             const qtdNova = toNumber(modal.querySelector(`[data-edit="quantidade_parcelas"]`)?.value || 1);
             const jurosNovo = toNumber(modal.querySelector(`[data-edit="porcentagem_juros"]`)?.value || 0);
 
-            // calcula totais (contrato) no teu modelo
             const totalAntes = calcTotalContratoMensal(principal, jurosAtual, qtdAtual);
             const totalDepois = calcTotalContratoMensal(principal, jurosNovo, qtdNova);
             const delta = totalDepois - totalAntes;
 
-            // estimativa das parcelas restantes no M1 (principal restante redistribui)
             const snap = buildMensalSnapshot(principal, jurosAtual, qtdAtual, modal._state.parcelas);
 
             const pagasCheias = snap.pagasCheias;
@@ -495,7 +508,6 @@
               (novaParcelaEst != null ? `• Estimativa nova parcela restante: ${money(novaParcelaEst)}\n` : "") +
               "\nContinuar?";
 
-            // ✅ este é o “alerta” da opção D (um confirm único antes de salvar)
             const ok = confirm(msg);
             if (!ok) {
               if (btn) btn.disabled = false;
@@ -503,12 +515,12 @@
             }
           }
         } catch (e2) {
-          // se falhar o alerta, não bloqueia salvamento
           console.warn("Falhou alerta de impacto (opção D). Seguindo sem alert.", e2);
         }
 
         const fd = new FormData(form);
         fd.set("recalcular_parcelas", "1");
+        fd.set("grupo", syncGrupoHidden());
 
         const res = await fetch("/KRAx/public/api.php?route=emprestimos/atualizar", {
           method: "POST",
@@ -541,7 +553,6 @@
             `Diferença:    ${money(d.diferenca)}`
           );
         }
-        
 
         GestorModal.close("modalEditarEmprestimo");
         onSuccess(json.mensagem || "Empréstimo atualizado!");
@@ -567,8 +578,14 @@
 
     const qtdInput = modal.querySelector(`[data-edit="quantidade_parcelas"]`);
     const jurosInput = modal.querySelector(`[data-edit="porcentagem_juros"]`);
+    const grupoCheck = modal.querySelector('[data-edit="grupo_maria_check"]');
+
     if (qtdInput) qtdInput.addEventListener("input", refreshPreview);
     if (jurosInput) jurosInput.addEventListener("input", refreshPreview);
+    if (grupoCheck) grupoCheck.addEventListener("change", () => {
+      syncGrupoHidden();
+      refreshPreview();
+    });
 
     const regraDate = modal.querySelector('[data-edit="regra_date"]');
     const regraWeek = modal.querySelector('[data-edit="regra_week"]');
@@ -579,6 +596,7 @@
     modal._refreshPreview = refreshPreview;
     modal._setRegraUI = (tipoV) => setRegraUI(modal, tipoV);
     modal._syncHiddenRegra = syncHiddenRegra;
+    modal._syncGrupoHidden = syncGrupoHidden;
     modal._saveSnapshot = saveSnapshot;
   }
 
@@ -598,6 +616,7 @@
     const refreshPreview = modal._refreshPreview || function () { };
     const setRegraUIFn = modal._setRegraUI || function () { };
     const syncHiddenRegra = modal._syncHiddenRegra || function () { };
+    const syncGrupoHidden = modal._syncGrupoHidden || function () { };
     const saveSnapshot = modal._saveSnapshot || function () { };
 
     modal.dataset.emprestimoId = emprestimoId;
@@ -614,6 +633,15 @@
     modal.dataset.tipoVencimento = String(payload?.tipoVencimento ?? "");
 
     const payloadRegra = String(payload?.regraVencimento ?? payload?.regra_vencimento ?? "").trim();
+    const payloadGrupo = normalizarGrupo(payload?.grupo);
+
+    if (payloadGrupo === "MARIA") {
+      setEdit("grupo_maria_check", true);
+      setEdit("grupo_hidden", "MARIA");
+    } else {
+      setEdit("grupo_maria_check", false);
+      setEdit("grupo_hidden", "PADRAO");
+    }
 
     const needFetch = !modal.dataset.principal || !modal.dataset.tipoVencimento || (!payloadRegra);
 
@@ -628,7 +656,6 @@
           const parcelas = Array.isArray(parsed.json?.dados?.parcelas) ? parsed.json.dados.parcelas : [];
           const pagamentos = Array.isArray(parsed.json?.dados?.pagamentos) ? parsed.json.dados.pagamentos : [];
 
-          // ✅ guarda estado pro alerta (opção D)
           modal._state = { emp, cli, parcelas, pagamentos };
 
           modal.dataset.principal = String(emp.valor_principal ?? "");
@@ -638,6 +665,10 @@
           if (payload?.quantidadeParcelas == null && emp.quantidade_parcelas != null) setEdit("quantidade_parcelas", String(emp.quantidade_parcelas));
           if (payload?.jurosPct == null && emp.porcentagem_juros != null) setEdit("porcentagem_juros", String(emp.porcentagem_juros));
           if (!payload?.clienteId && emp.cliente_id != null) modal.dataset.clienteId = String(emp.cliente_id);
+
+          const grupoAtual = normalizarGrupo(emp.grupo);
+          setEdit("grupo_maria_check", grupoAtual === "MARIA");
+          setEdit("grupo_hidden", grupoAtual);
 
           const tipoV = String(modal.dataset.tipoVencimento || "").trim().toUpperCase();
           const regraAtualRaw = String(emp.regra_vencimento ?? "").trim();
@@ -656,12 +687,12 @@
           }
 
           syncHiddenRegra();
+          syncGrupoHidden();
         }
       } catch (e) {
         console.error(e);
       }
     } else {
-      // se veio tudo no payload, ainda assim tentamos ter _state mínimo pra alerta
       modal._state = modal._state || {
         emp: {
           valor_principal: modal.dataset.principal,
@@ -669,7 +700,8 @@
           quantidade_parcelas: payload?.quantidadeParcelas,
           porcentagem_juros: payload?.jurosPct,
           regra_vencimento: payloadRegra,
-          cliente_id: payload?.clienteId
+          cliente_id: payload?.clienteId,
+          grupo: payloadGrupo
         },
         parcelas: [],
         pagamentos: []
@@ -691,6 +723,7 @@
       }
 
       syncHiddenRegra();
+      syncGrupoHidden();
     }
 
     refreshPreview();

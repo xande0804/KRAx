@@ -16,11 +16,29 @@ class EmprestimoDAO
     public function criar(Emprestimo $e): int
     {
         $sql = "INSERT INTO emprestimos
-                (cliente_id, data_emprestimo, valor_principal, porcentagem_juros,
-                 quantidade_parcelas, tipo_vencimento, regra_vencimento, status)
+                (
+                    cliente_id,
+                    data_emprestimo,
+                    valor_principal,
+                    porcentagem_juros,
+                    quantidade_parcelas,
+                    tipo_vencimento,
+                    regra_vencimento,
+                    status,
+                    grupo
+                )
                 VALUES
-                (:cliente_id, :data_emprestimo, :valor_principal, :porcentagem_juros,
-                 :quantidade_parcelas, :tipo_vencimento, :regra_vencimento, :status)";
+                (
+                    :cliente_id,
+                    :data_emprestimo,
+                    :valor_principal,
+                    :porcentagem_juros,
+                    :quantidade_parcelas,
+                    :tipo_vencimento,
+                    :regra_vencimento,
+                    :status,
+                    :grupo
+                )";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([
@@ -32,6 +50,7 @@ class EmprestimoDAO
             ':tipo_vencimento' => $e->getTipoVencimento(),
             ':regra_vencimento' => $e->getRegraVencimento(),
             ':status' => $e->getStatus(),
+            ':grupo' => $e->getGrupo(),
         ]);
 
         return (int) $this->pdo->lastInsertId();
@@ -40,7 +59,13 @@ class EmprestimoDAO
     // READ - buscar por id
     public function buscarPorId(int $id): ?Emprestimo
     {
-        $sql = "SELECT * FROM emprestimos WHERE id = :id LIMIT 1";
+        $sql = "SELECT
+                    *,
+                    COALESCE(grupo, 'PADRAO') AS grupo
+                FROM emprestimos
+                WHERE id = :id
+                LIMIT 1";
+
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([':id' => $id]);
 
@@ -53,7 +78,12 @@ class EmprestimoDAO
     // READ - listar todos
     public function listar(): array
     {
-        $sql = "SELECT * FROM emprestimos ORDER BY id DESC";
+        $sql = "SELECT
+                    *,
+                    COALESCE(grupo, 'PADRAO') AS grupo
+                FROM emprestimos
+                ORDER BY id DESC";
+
         $stmt = $this->pdo->query($sql);
         $rows = $stmt->fetchAll();
 
@@ -130,6 +160,7 @@ class EmprestimoDAO
         $e->setTipoVencimento($row['tipo_vencimento']);
         $e->setRegraVencimento($row['regra_vencimento']);
         $e->setStatus($row['status']);
+        $e->setGrupo($row['grupo'] ?? 'PADRAO');
         return $e;
     }
 
@@ -146,6 +177,7 @@ class EmprestimoDAO
             e.valor_principal,
             e.quantidade_parcelas,
             e.status,
+            COALESCE(e.grupo, 'PADRAO') AS grupo,
 
             CASE 
               WHEN UPPER(e.status) = 'QUITADO' THEN NULL
@@ -186,16 +218,13 @@ class EmprestimoDAO
             $where[] = "e.status = 'QUITADO'";
         }
 
-        // ✅ CORRIGIDO: atraso por DATA + "não pago" (status ou valor_pago < valor_parcela)
         if ($filtro === 'ATRASADO') {
             $where[] = "e.status = 'ATIVO' AND EXISTS (
                 SELECT 1 FROM parcelas px
                 WHERE px.emprestimo_id = e.id
                   AND px.data_vencimento < CURDATE()
                   AND (
-                        -- status indica aberto/atrasado
                         UPPER(COALESCE(px.status,'')) IN ('ABERTA','PARCIAL','ATRASADO','ATRASADA')
-                        -- OU ainda não quitou pelo valor (cobre status vazio/errado)
                         OR COALESCE(px.valor_pago,0) < COALESCE(px.valor_parcela,0)
                   )
             )";
@@ -207,7 +236,7 @@ class EmprestimoDAO
 
         $sql .= "
             GROUP BY 
-              e.id, e.cliente_id, c.nome, e.valor_principal, e.quantidade_parcelas, e.status
+              e.id, e.cliente_id, c.nome, e.valor_principal, e.quantidade_parcelas, e.status, e.grupo
             ORDER BY e.id DESC
         ";
 
@@ -234,6 +263,7 @@ class EmprestimoDAO
             e.valor_principal,
             e.quantidade_parcelas,
             e.status,
+            COALESCE(e.grupo, 'PADRAO') AS grupo,
 
             CASE 
               WHEN UPPER(e.status) = 'QUITADO' THEN e.quantidade_parcelas
@@ -263,7 +293,7 @@ class EmprestimoDAO
           INNER JOIN clientes c ON c.id = e.cliente_id
           LEFT JOIN parcelas p ON p.emprestimo_id = e.id
           WHERE e.cliente_id = :cliente_id
-          GROUP BY e.id, e.cliente_id, c.nome, e.valor_principal, e.quantidade_parcelas, e.status
+          GROUP BY e.id, e.cliente_id, c.nome, e.valor_principal, e.quantidade_parcelas, e.status, e.grupo
           ORDER BY e.id DESC
         ";
 

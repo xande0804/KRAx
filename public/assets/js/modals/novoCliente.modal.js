@@ -80,6 +80,36 @@
               <input name="indicacao" placeholder="Quem indicou este cliente?" />
             </div>
 
+            <div class="field form-span-2">
+              <label>Grupo do cliente</label>
+
+              <div
+                style="
+                  display:flex;
+                  align-items:flex-start;
+                  gap:10px;
+                  padding:12px 14px;
+                  border:1px solid var(--line, #2a2f3a);
+                  border-radius:14px;
+                  background:var(--panel, rgba(255,255,255,0.02));
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="clienteGrupoMaria"
+                  style="margin-top:3px;"
+                />
+
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                  <label for="clienteGrupoMaria" style="margin:0; cursor:pointer; font-weight:600;">
+                    Este cliente pertence ao grupo "Novo"
+                  </label>
+                </div>
+              </div>
+
+              <input type="hidden" name="grupo" id="grupoClienteInput" value="PADRAO" />
+            </div>
+
             <!-- ✅ NOVO: Documentos -->
             <div class="field form-span-2">
               <label>Documentos</label>
@@ -94,7 +124,6 @@
                 </span>
               </div>
 
-              <!-- input escondido -->
               <input
                 type="file"
                 id="docsInput"
@@ -104,7 +133,6 @@
                 accept="image/*,application/pdf,.pdf,.png,.jpg,.jpeg,.webp,.heic,.doc,.docx,.xls,.xlsx,.txt"
               />
 
-              <!-- lista -->
               <div id="docsList" style="margin-top:10px;"></div>
             </div>
           </div>
@@ -126,7 +154,6 @@
 
     document.body.appendChild(modal);
 
-    // ativa máscaras no modal
     if (typeof applyMasks === "function") {
       applyMasks(modal);
     }
@@ -134,14 +161,26 @@
     const form = qs("#formNovoCliente");
     const btnSalvarECriar = qs("#btnSalvarECriarEmprestimo");
 
-    // ===== Docs (front) =====
+    const clienteGrupoMaria = qs("#clienteGrupoMaria");
+    const grupoClienteInput = qs("#grupoClienteInput");
+
+    function syncGrupoCliente() {
+      if (!grupoClienteInput || !clienteGrupoMaria) return;
+      grupoClienteInput.value = clienteGrupoMaria.checked ? "MARIA" : "PADRAO";
+    }
+
+    if (clienteGrupoMaria) {
+      clienteGrupoMaria.addEventListener("change", syncGrupoCliente);
+    }
+
+    syncGrupoCliente();
+
     const btnAddDocs = qs("#btnAddDocs");
     const docsInput = qs("#docsInput");
     const docsList = qs("#docsList");
 
-    // vamos manter uma lista nossa e refletir no input.files com DataTransfer
-    let selectedFiles = []; // Array<File>
-    let objectUrls = new Map(); // key: fileKey => url
+    let selectedFiles = [];
+    let objectUrls = new Map();
 
     function fileKey(f) {
       return `${f.name}__${f.size}__${f.lastModified}`;
@@ -203,7 +242,6 @@
       const arr = Array.from(fileList || []);
       if (!arr.length) return;
 
-      // evita duplicados (mesmo nome+tamanho+lastModified)
       const existing = new Set(selectedFiles.map(fileKey));
       for (const f of arr) {
         const k = fileKey(f);
@@ -213,7 +251,6 @@
         }
       }
 
-      // ordena por nome (opcional, pra ficar bonitinho)
       selectedFiles.sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }));
 
       syncInputFiles();
@@ -223,7 +260,6 @@
     function removeFileByKey(k) {
       selectedFiles = selectedFiles.filter(f => fileKey(f) !== k);
 
-      // revoga url se existir
       const url = objectUrls.get(k);
       if (url) {
         try { URL.revokeObjectURL(url); } catch (_) { }
@@ -243,7 +279,7 @@
         url = URL.createObjectURL(f);
         objectUrls.set(k, url);
       }
-      // abre numa nova aba (imagem e pdf abrem ok)
+
       window.open(url, "_blank", "noopener");
     }
 
@@ -254,7 +290,6 @@
     if (docsInput) {
       docsInput.addEventListener("change", () => {
         addFiles(docsInput.files);
-        // reseta o input pra permitir re-selecionar o mesmo arquivo depois de remover
         docsInput.value = "";
         syncInputFiles();
       });
@@ -273,7 +308,6 @@
       });
     }
 
-    // ===== Fluxo salvar e criar empréstimo =====
     let abrirNovoEmprestimoDepois = false;
 
     btnSalvarECriar.addEventListener("click", () => {
@@ -285,9 +319,8 @@
       e.preventDefault();
 
       try {
-        // FormData já leva os arquivos pelo input name="documentos[]"
-        // mas como a gente controla selectedFiles, garantimos sincronizado:
         syncInputFiles();
+        syncGrupoCliente();
 
         const fd = new FormData(form);
 
@@ -306,23 +339,26 @@
 
         const novoClienteId = json.dados?.id;
         const nomeDigitado = (fd.get("nome") || "").toString().trim();
+        const grupoCliente = (fd.get("grupo") || "PADRAO").toString().trim().toUpperCase();
 
         GestorModal.close("modalNovoCliente");
         form.reset();
 
-        // limpa docs
+        if (clienteGrupoMaria) {
+          clienteGrupoMaria.checked = false;
+        }
+        syncGrupoCliente();
+
         selectedFiles = [];
         syncInputFiles();
         revokeAllUrls();
         renderDocs();
 
-        // fluxo 1: só salvar
         if (!abrirNovoEmprestimoDepois) {
           onSuccess("Cliente cadastrado!", { reload: true });
           return;
         }
 
-        // fluxo 2: salvar e abrir empréstimo
         abrirNovoEmprestimoDepois = false;
         toast("Cliente cadastrado! Abrindo empréstimo...", "success", 1400);
 
@@ -345,6 +381,7 @@
             selectCliente.value = String(novoClienteId);
             selectCliente.disabled = false;
             selectCliente.dataset.locked = "1";
+            selectCliente.dataset.clienteGrupo = grupoCliente;
           }
 
           const inputData = modalEmp.querySelector('input[name="data_emprestimo"]');
@@ -359,14 +396,11 @@
       }
     });
 
-    // estado inicial docs
     renderDocs();
   }
 
-  // expõe
   window.injectModalNovoCliente = injectModalNovoCliente;
 
-  // handler pro index.js
   window.openNovoCliente = function openNovoCliente() {
     injectModalNovoCliente();
     GestorModal.open("modalNovoCliente");

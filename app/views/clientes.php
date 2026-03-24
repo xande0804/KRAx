@@ -6,7 +6,8 @@ $pageCss = [
   'cards',
   'list',
   'cliente-detalhes',
-  'emprestimo-detalhes'
+  'emprestimo-detalhes',
+  'badges',
 ];
 
 $pageJs = [
