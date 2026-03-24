@@ -1,4 +1,3 @@
-// public/assets/js/modals/novoEmprestimo.modal.js
 (function () {
   const qs = window.qs;
   const onError = window.onError || function () { };
@@ -17,7 +16,6 @@
     return Number.isFinite(n) ? n : 0;
   }
 
-  // ✅ pt-BR: "1.234,56" -> 1234.56
   function parseMoneyBR(str) {
     const s0 = String(str ?? "").trim();
     if (!s0) return 0;
@@ -62,7 +60,6 @@
     return `${yy}-${mm}-${dd}`;
   }
 
-  // weekday: 1..6 (Seg..Sáb). Retorna próxima data >= base+minDays que cai no weekday.
   function nextWeekdayISO(baseISO, weekday1to6, minDaysAhead) {
     const base = String(baseISO || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(base)) return "";
@@ -73,7 +70,7 @@
     const start = new Date(y, m - 1, d);
     start.setDate(start.getDate() + minAhead);
 
-    const target = wd; // 1..6 (Seg..Sáb)
+    const target = wd;
     let dt = new Date(start.getTime());
     for (let i = 0; i < 14; i++) {
       if (dt.getDay() === target) {
@@ -88,33 +85,26 @@
   }
 
   // =========================
-  // ✅ NOVO: regra "nunca domingo" no FRONT + ALERT
+  // Domingo
   // =========================
   function isSundayISO(iso) {
     const s = String(iso || "");
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
     const [y, m, d] = s.split("-").map(Number);
     const dt = new Date(y, m - 1, d);
-    return dt.getDay() === 0; // 0 = domingo
+    return dt.getDay() === 0;
   }
 
   function shiftIfSundayISO(iso) {
     return isSundayISO(iso) ? addDaysISO(iso, 1) : String(iso || "");
   }
 
-  /**
-   * Ajusta o input de data caso caia em domingo.
-   * - mode: "alert" -> mostra alert e ajusta para segunda
-   * - mode: "silent" -> só ajusta (sem alert)
-   */
   function ensureNotSundayOnDateInput(dateEl, opts = {}) {
     if (!dateEl) return;
 
-    const mode = opts.mode || "silent"; // "alert" | "silent"
-
+    const mode = opts.mode || "silent";
     const v0 = String(dateEl.value || "");
     if (!v0) return;
-
     if (!isSundayISO(v0)) return;
 
     const v1 = shiftIfSundayISO(v0);
@@ -132,10 +122,7 @@
   }
 
   // =========================
-  // ✅ SIMULAÇÃO 100% IGUAL AO BACKEND
-  // - MENSAL: total = principal + (principal * juros%) * qtd
-  // - DIARIO/SEMANAL: total = principal * (1 + juros%)
-  // - divide em centavos e resto vai na última parcela
+  // Simulação igual backend
   // =========================
   function calcParcelasLikeBackend(principal, jurosPct, qtd, tipoV) {
     const P = Math.max(0, Number(principal) || 0);
@@ -221,6 +208,16 @@
     return `${escHtml(a)}<strong>${escHtml(b)}</strong>${escHtml(c)}`;
   }
 
+  function isGrupoMaria(v) {
+    return String(v || "").toUpperCase() === "MARIA";
+  }
+
+  function setGrupoCheckboxByCliente(modal, grupo) {
+    const check = modal?.querySelector('#grupoMariaEmprestimo');
+    if (!check) return;
+    check.checked = isGrupoMaria(grupo);
+  }
+
   async function loadClientesCache() {
     if (Array.isArray(clientesCache)) return clientesCache;
 
@@ -231,7 +228,11 @@
 
       const lista = Array.isArray(json.dados) ? json.dados : [];
       clientesCache = lista
-        .map((c) => ({ id: String(c.id), nome: String(c.nome || "") }))
+        .map((c) => ({
+          id: String(c.id),
+          nome: String(c.nome || ""),
+          grupo: String(c.grupo || "PADRAO").toUpperCase()
+        }))
         .filter((c) => c.id && c.nome);
 
       clientesCache.sort((a, b) =>
@@ -268,7 +269,6 @@
         <form class="modal__body" id="formNovoEmprestimo" action="/KRAx/public/api.php?route=emprestimos/criar" method="post">
           <div class="form-grid form-grid--3">
 
-            <!-- ✅ CLIENTE (Autocomplete) -->
             <div class="field form-span-2" style="position:relative;">
               <label>Cliente</label>
 
@@ -298,11 +298,17 @@
             </div>
 
             <div class="field form-span-2">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="grupoMariaEmprestimo" name="grupo_maria" value="1" />
+                <span>Adicionar este empréstimo ao grupo Novo</span>
+              </label>
+            </div>
+
+            <div class="field form-span-2">
               <label>Data do empréstimo</label>
               <input type="date" name="data_emprestimo" required />
             </div>
 
-            <!-- ✅ mesma linha: Valor, Parcelas, Juros -->
             <div class="field">
               <label>Valor (R$)</label>
               <input name="valor_principal" inputmode="decimal" placeholder="0,00" required />
@@ -318,7 +324,6 @@
               <input type="number" min="0" step="0.01" name="porcentagem_juros" value="30" required />
             </div>
 
-            <!-- ✅ simulação logo abaixo (1 linha só) -->
             <div class="field form-span-2">
               <div class="simbox" id="simLineNovoEmprestimo" title="Simulação">
                 <div class="simline">
@@ -343,7 +348,6 @@
               </select>
             </div>
 
-            <!-- ✅ Dinâmico: semanal (1..6) / diário-mensal (date) -->
             <div class="field form-span-2" id="wrapRegraVencimento"></div>
 
           </div>
@@ -358,34 +362,27 @@
 
     document.body.appendChild(modal);
 
-    // =========================
-    // CSS mínimo (inline safe)
-    // =========================
     const styleId = "novoEmprestimoSimMiniStyle";
     if (!document.getElementById(styleId)) {
       const st = document.createElement("style");
       st.id = styleId;
       st.textContent = `
-        /* botão X do cliente */
         #modalNovoEmprestimo #clienteClearBtn{
           position:absolute; right:10px; top:50%; transform:translateY(-50%);
           width:28px; height:28px; border-radius:999px; border:1px solid #e6e8ef; background:#fff;
           cursor:pointer; line-height:26px; font-size:18px; padding:0;
         }
 
-        /* ✅ grid 3 colunas fixas (Valor / Parcelas / Juros) */
         #modalNovoEmprestimo .form-grid--3{
           display:grid;
           grid-template-columns: 1.4fr 0.8fr 0.8fr;
           gap: 12px;
         }
 
-        /* spans */
         #modalNovoEmprestimo .form-span-2{
           grid-column: 1 / -1;
         }
 
-        /* simulação: 1 linha só (sem quebrar) */
         #modalNovoEmprestimo .simbox{
           height: 40px;
           display:flex;
@@ -414,7 +411,6 @@
         #modalNovoEmprestimo .simk{ font-size:12px; color:#6b7280; }
         #modalNovoEmprestimo .simv{ font-size:12px; font-weight:800; color:#111827; }
 
-        /* responsivo */
         @media (max-width: 720px){
           #modalNovoEmprestimo .form-grid--3{
             grid-template-columns: 1fr 1fr;
@@ -427,9 +423,6 @@
       document.head.appendChild(st);
     }
 
-    // =========================
-    // Elements
-    // =========================
     const form = qs("#formNovoEmprestimo");
     const btnSubmit = qs("#btnSubmitNovoEmprestimo");
 
@@ -442,7 +435,6 @@
     const suggestBox = modal.querySelector("#clienteSuggestBox");
     const clearBtn = modal.querySelector("#clienteClearBtn");
 
-    // simulação
     const simPrimeiroEl = modal.querySelector("#simPrimeiroVenc");
     const simTotalEl = modal.querySelector("#simTotal");
     const simParcelaEl = modal.querySelector("#simParcela");
@@ -514,22 +506,17 @@
       });
     }
 
-    // =========================
-    // Regra vencimento dinâmica + DEFAULTS automáticos
-    // =========================
     function bindRegraDateEvents() {
       const dateEl = modal.querySelector("#regraVencimentoDate");
       if (!dateEl) return;
       if (dateEl.dataset.boundSunday) return;
       dateEl.dataset.boundSunday = "1";
 
-      // ✅ quando o usuário escolhe manualmente: ALERT + ajuste para segunda
       dateEl.addEventListener("change", () => {
         ensureNotSundayOnDateInput(dateEl, { mode: "alert" });
         scheduleSimUpdate();
       });
 
-      // input: só garante ajuste silencioso
       dateEl.addEventListener("input", () => {
         ensureNotSundayOnDateInput(dateEl, { mode: "silent" });
         scheduleSimUpdate();
@@ -574,10 +561,7 @@
           dateEl.value = defVal;
           if (dateEl.value && dateEl.value < baseDate) dateEl.value = defVal;
 
-          // ✅ garante no load (sem alert)
           ensureNotSundayOnDateInput(dateEl, { mode: "silent" });
-
-          // ✅ garante nos eventos
           bindRegraDateEvents();
         }
       }
@@ -610,7 +594,6 @@
       });
     }
 
-    // listeners sim
     if (form && !form.dataset.simBound) {
       form.dataset.simBound = "1";
 
@@ -644,9 +627,6 @@
       });
     }
 
-    // =========================
-    // Autocomplete behavior
-    // =========================
     function hideSuggest() {
       if (!suggestBox) return;
       suggestBox.hidden = true;
@@ -654,9 +634,10 @@
       acActiveIndex = -1;
     }
 
-    function setClienteSelecionado(id, nome) {
+    function setClienteSelecionado(id, nome, grupo = "PADRAO") {
       if (clienteHidden) clienteHidden.value = String(id || "");
       if (clienteInput) clienteInput.value = String(nome || "");
+      setGrupoCheckboxByCliente(modal, grupo);
       hideSuggest();
     }
 
@@ -694,7 +675,14 @@
       }
 
       suggestBox.innerHTML = limited.map((c, idx) => `
-        <div class="acitem" role="option" data-idx="${idx}" data-id="${escHtml(c.id)}" data-nome="${escHtml(c.nome)}">
+        <div
+          class="acitem"
+          role="option"
+          data-idx="${idx}"
+          data-id="${escHtml(c.id)}"
+          data-nome="${escHtml(c.nome)}"
+          data-grupo="${escHtml(c.grupo || 'PADRAO')}"
+        >
           ${highlightMatchAccentsSafe(c.nome, query)}
         </div>
       `).join("");
@@ -728,7 +716,8 @@
 
         const id = item.getAttribute("data-id") || "";
         const nome = item.getAttribute("data-nome") || item.textContent || "";
-        if (id) setClienteSelecionado(id, nome);
+        const grupo = item.getAttribute("data-grupo") || "PADRAO";
+        if (id) setClienteSelecionado(id, nome, grupo);
       });
 
       suggestBox.addEventListener("mousemove", (e) => {
@@ -776,7 +765,8 @@
 
           const id = el.getAttribute("data-id") || "";
           const nome = el.getAttribute("data-nome") || el.textContent || "";
-          if (id) setClienteSelecionado(id, nome);
+          const grupo = el.getAttribute("data-grupo") || "PADRAO";
+          if (id) setClienteSelecionado(id, nome, grupo);
         } else if (e.key === "Escape") {
           e.preventDefault();
           hideSuggest();
@@ -796,14 +786,12 @@
           setLockedUI(false);
           clienteInput.focus();
         }
+        setGrupoCheckboxByCliente(modal, "PADRAO");
         await loadClientesCache();
         hideSuggest();
       });
     }
 
-    // =========================
-    // Submit
-    // =========================
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
@@ -824,7 +812,6 @@
         const regraDateEl = modal.querySelector('input[name="regra_vencimento"][type="date"]');
 
         if ((tipo === "DIARIO" || tipo === "MENSAL") && regraDateEl) {
-          // ✅ antes de enviar: garante sem domingo (sem alert duplicado)
           ensureNotSundayOnDateInput(regraDateEl, { mode: "silent" });
 
           const regraFinal = regraDateEl.value || "";
@@ -836,6 +823,7 @@
         }
 
         const fd = new FormData(form);
+        fd.set("grupo", modal.querySelector("#grupoMariaEmprestimo")?.checked ? "MARIA" : "PADRAO");
 
         const res = await fetch("/KRAx/public/api.php?route=emprestimos/criar", {
           method: "POST",
@@ -856,6 +844,7 @@
         if (clienteHidden) clienteHidden.value = "";
         if (clienteInput) clienteInput.value = "";
         setLockedUI(false);
+        setGrupoCheckboxByCliente(modal, "PADRAO");
         hideSuggest();
 
         toast("Empréstimo criado!");
@@ -867,7 +856,6 @@
       }
     });
 
-    // defaults
     const inputData = modal.querySelector('input[name="data_emprestimo"]');
     if (inputData && !inputData.value) inputData.value = todayISO();
 
@@ -912,15 +900,24 @@
 
     const clienteId = String(payload.clienteId || "");
     const clienteNome = String(payload.clienteNome || "");
+    const clienteGrupo = String(payload.clienteGrupo || payload.grupo || "").toUpperCase();
 
     if (clienteId && clienteHidden && clienteInput) {
       clienteHidden.value = clienteId;
       clienteInput.value = clienteNome || `Cliente #${clienteId}`;
       setLockedUI(true);
+
+      if (clienteGrupo) {
+        setGrupoCheckboxByCliente(modal, clienteGrupo);
+      } else {
+        const achado = (clientesCache || []).find(c => String(c.id) === clienteId);
+        setGrupoCheckboxByCliente(modal, achado?.grupo || "PADRAO");
+      }
     } else if (clienteHidden && clienteInput) {
       clienteHidden.value = "";
       clienteInput.value = "";
       setLockedUI(false);
+      setGrupoCheckboxByCliente(modal, "PADRAO");
     }
 
     const inputData = modal.querySelector('input[name="data_emprestimo"]');

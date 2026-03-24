@@ -20,6 +20,14 @@
     return `<span class="badge badge--info">Ativo</span>`;
   }
 
+  function grupoBadge(grupo) {
+    const g = String(grupo || "").trim().toUpperCase();
+    if (g === "MARIA") {
+      return `<span class="badge badge--maria">Novo</span>`;
+    }
+    return "";
+  }
+
   function esc(s) {
     return String(s ?? "")
       .replaceAll("&", "&amp;")
@@ -147,12 +155,11 @@
   // ✅ AVALIAÇÃO DO CLIENTE (1–5)
   // =============================
   function starsHTML(n) {
-  const s = Math.max(1, Math.min(5, Number(n) || 1));
-  const full = "★".repeat(s);
-  const empty = "☆".repeat(5 - s);
-  return `<span style="color:#f59e0b;">${full}${empty}</span>`;
-}
-
+    const s = Math.max(1, Math.min(5, Number(n) || 1));
+    const full = "★".repeat(s);
+    const empty = "☆".repeat(5 - s);
+    return `<span style="color:#f59e0b;">${full}${empty}</span>`;
+  }
 
   function ratingLabel(stars) {
     const s = Number(stars) || 1;
@@ -286,10 +293,10 @@
   }
 
   function renderRatingBlock(metrics) {
-  const score = computeScore(metrics);
-  const stars = starsFromScore(score);
+    const score = computeScore(metrics);
+    const stars = starsFromScore(score);
 
-  return `
+    return `
     <div style="padding:10px 12px; border:1px solid rgba(0,0,0,.08); border-radius:14px; background:#fff;">
       
       <div style="font-size:18px; letter-spacing:2px;">
@@ -306,8 +313,7 @@
 
     </div>
   `;
-}
-
+  }
 
   // ========= INJECT MODAL =========
   window.injectModalDetalhesCliente = function injectModalDetalhesCliente() {
@@ -327,9 +333,7 @@
               <div>
                 <h3 class="client-name" data-fill="nome">Cliente</h3>
                 <p class="client-sub">Dados completos do cliente</p>
-
-                <!-- ✅ NOVO: Avaliação -->
-                
+                <div id="clienteGrupoBadge" style="margin-top:8px;"></div>
               </div>
             </div>
             <button class="iconbtn" type="button" data-modal-close="modalDetalhesCliente">×</button>
@@ -340,9 +344,9 @@
           <div class="client-details">
 
             <div class="client-info">
-            <div id="clientRatingWrap" style="margin-top:6px;">
-                  <div class="muted" style="font-size:12px;">Carregando avaliação...</div>
-                </div>
+              <div id="clientRatingWrap" style="margin-top:6px;">
+                <div class="muted" style="font-size:12px;">Carregando avaliação...</div>
+              </div>
               <div class="client-line"><span class="icon-bullet">📞</span> <span data-fill="telefone">—</span></div>
               <div class="client-line"><span class="icon-bullet">🪪</span> CPF <strong data-fill="cpf">—</strong></div>
               <div class="client-line"><span class="icon-bullet">📍</span> <span data-fill="endereco">—</span></div>
@@ -458,6 +462,9 @@
     fill("placa", "—");
     fill("indicacao", "—");
 
+    const grupoBadgeEl = modal.querySelector("#clienteGrupoBadge");
+    if (grupoBadgeEl) grupoBadgeEl.innerHTML = "";
+
     modal.dataset.clienteId = id;
 
     // rating UI
@@ -496,6 +503,10 @@
       fill("profissao", c.profissao);
       fill("placa", c.placa_carro);
       fill("indicacao", c.indicacao);
+
+      if (grupoBadgeEl) {
+        grupoBadgeEl.innerHTML = grupoBadge(c.grupo);
+      }
 
       // ✅ DOCUMENTOS no detalhes
       if (docsWrap) {

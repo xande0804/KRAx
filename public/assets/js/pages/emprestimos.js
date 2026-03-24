@@ -54,6 +54,14 @@
     return `<span class="badge badge--info">Ativo</span>`;
   }
 
+  function grupoBadgeHtml(grupo) {
+    const g = String(grupo || "").trim().toUpperCase();
+    if (g === "MARIA") {
+      return `<span class="badge badge--maria">Novo</span>`;
+    }
+    return "";
+  }
+
   function getStatusTela(row) {
     if (String(row?.status || "").toUpperCase() === "QUITADO") return "QUITADO";
     if (isAtrasado(row)) return "ATRASADO";
@@ -99,6 +107,7 @@
     <div class="list-item__title">
       <strong>${row.cliente_nome ?? "—"}</strong>
       ${badgeHtml(statusTela)}
+      ${grupoBadgeHtml(row.grupo)}
     </div>
     <div class="list-item__meta">
       <span>${money(row.valor_principal)}</span>
@@ -119,7 +128,6 @@
       `;
     }).join("");
 
-    // 🔥 TROCA UMA ÚNICA VEZ
     listEl.innerHTML = html;
   }
 
@@ -150,7 +158,6 @@
 
   async function load(filterKey) {
     try {
-      // 🔥 NÃO apaga a lista
       listEl.classList.add("is-loading");
 
       const all = await fetchList();

@@ -21,7 +21,6 @@
     return s.includes("R$") ? s : (s ? `R$ ${s}` : "—");
   }
 
-  // pt-BR: "1.234,56" -> 1234.56
   function parseMoneyBR(str) {
     const s0 = String(str ?? "").trim();
     if (!s0) return 0;
@@ -32,7 +31,6 @@
     return Number.isFinite(n) ? n : 0;
   }
 
-  // ✅ aceita número e string pt-BR
   function toNumber(v) {
     if (v === null || v === undefined) return 0;
     if (typeof v === "number") return Number.isFinite(v) ? v : 0;
@@ -57,7 +55,6 @@
     return num.toFixed(2).replace(".", ",");
   }
 
-  // centavos
   function toCents(v) {
     const n = toNumber(v);
     return Math.round(n * 100);
@@ -93,6 +90,14 @@
     return { text: "Ativo", cls: "badge--info" };
   }
 
+  function grupoBadgeHtml(grupo) {
+    const g = String(grupo || "").trim().toUpperCase();
+    if (g === "MARIA") {
+      return `<span class="badge badge--maria">Novo</span>`;
+    }
+    return "";
+  }
+
   function todayISO() {
     return new Date().toISOString().slice(0, 10);
   }
@@ -119,7 +124,6 @@
     return Number(p?.id ?? p?.parcela_id ?? 0) || 0;
   }
 
-  // ✅ aceita "DD/MM/AAAA" ou "AAAA-MM-DD" e retorna "AAAA-MM-DD"
   function normalizeDateToISO(input) {
     const s = String(input ?? "").trim();
     if (!s) return "";
@@ -132,11 +136,9 @@
     return "";
   }
 
-  // ✅ monta mapa: parcela_id -> MAIOR data_pagamento (PARCELA)
-  // + fallback de quitação: maior data_pagamento (QUITACAO/INTEGRAL) com parcela_id null
   function buildPagamentoMaps(pagamentos) {
-    const mapParcelaMaxDate = new Map(); // parcelaId -> 'YYYY-MM-DD'
-    let quitacaoFallbackDate = ""; // maior entre QUITACAO/INTEGRAL (parcela_id null)
+    const mapParcelaMaxDate = new Map();
+    let quitacaoFallbackDate = "";
 
     const arr = Array.isArray(pagamentos) ? pagamentos : [];
     for (const pg of arr) {
@@ -152,7 +154,6 @@
         continue;
       }
 
-      // QUITACAO/INTEGRAL geralmente vem com parcela_id = null no seu backend
       if (!pid && (tipo === "QUITACAO" || tipo === "INTEGRAL")) {
         if (!quitacaoFallbackDate || dt > quitacaoFallbackDate) quitacaoFallbackDate = dt;
       }
@@ -180,7 +181,6 @@
 
     const isAtrasadaReal = vencidaPorData && !isPagaReal;
 
-    // ✅ PAGA (ATRASADA) = data_pagamento REAL > data_vencimento
     const pid = getParcelaId(p);
 
     let pagoEmISO = "";
@@ -188,7 +188,6 @@
       pagoEmISO = pgMaps.mapParcelaMaxDate.get(pid) || "";
     }
 
-    // fallback: se foi quitado/integral e a parcela ficou QUITADA sem pagamento por parcela_id
     if (!pagoEmISO && pgMaps && pgMaps.quitacaoFallbackDate) {
       if (isPagaReal) pagoEmISO = pgMaps.quitacaoFallbackDate;
     }
@@ -222,7 +221,6 @@
     return abertas[0];
   }
 
-  // ✅ mesma regra do modal "lançar pagamento"
   function calcQuitacaoNova(emp, parcelasArr, pagamentosArr) {
     const principal = toNumber(emp.valor_principal);
     const jurosPct = toNumber(emp.porcentagem_juros);
@@ -235,7 +233,6 @@
         ? (principal + (jurosTotalContrato * qtdTotal))
         : (principal * (1 + jurosPct / 100));
 
-    // DIÁRIO/SEMANAL: total c/juros - apenas parcelas pagas cheias
     if (tipoV === "DIARIO" || tipoV === "SEMANAL") {
       let totalParcelasPagasCheias = 0;
       const arr = Array.isArray(parcelasArr) ? parcelasArr : [];
@@ -252,7 +249,6 @@
       return round2(Math.max(0, totalComJuros - totalParcelasPagasCheias));
     }
 
-    // MENSAL: parcelas abertas + 1 juros (sua regra)
     let faltanteParcelas = 0;
     let qtdRestantes = 0;
     const abertas = Array.isArray(parcelasArr) ? parcelasArr : [];
@@ -291,9 +287,6 @@
     };
   }
 
-  // ✅ editar pagamento:
-  // - se tipo PARCELA: faz "substituição" (exclui + lança novo) pra manter rateio do restante
-  // - senão: tenta rota pagamentos/atualizar (se existir)
   async function editarPagamentoUI(pg, emprestimoId, modal, tipoVencimento) {
     const pgId = String(pg?.id ?? pg?.pagamento_id ?? "").trim();
     if (!pgId) return onError("Pagamento sem ID (não dá pra editar).");
@@ -321,7 +314,6 @@
     const novaObs = prompt("Observação (opcional):", obsAtual);
     if (novaObs === null) return;
 
-    // ✅ Se é PARCELA, usa o mesmo comportamento do lançamento (rateio do resto)
     if (tipoPg === "PARCELA") {
       if (!parcelaId) {
         onError("Esse pagamento é PARCELA mas não tem parcela_id. Não dá pra refazer rateio.");
@@ -329,7 +321,6 @@
       }
 
       try {
-        // 1) excluir antigo
         {
           const fdDel = new FormData();
           fdDel.append("pagamento_id", pgId);
@@ -347,7 +338,6 @@
           }
         }
 
-        // 2) lançar novo (o backend vai jogar o restante pra próxima)
         {
           const fd = new FormData();
           fd.append("emprestimo_id", String(emprestimoId));
@@ -382,7 +372,6 @@
       }
     }
 
-    // ✅ Outros tipos: tenta atualizar direto (se você tiver essa rota)
     try {
       const fd = new FormData();
       fd.append("pagamento_id", pgId);
@@ -482,7 +471,6 @@
       notifyOk(j.mensagem || "Empréstimo excluído ✅");
       GestorModal.close("modalDetalhesEmprestimo");
 
-      // refresh conforme origem
       const origemSalva = modal?.dataset?.origem || "emprestimos";
       const clienteIdSalvo = modal?.dataset?.clienteId || "";
 
@@ -500,7 +488,6 @@
     }
   }
 
-  // ========= INJECT =========
   window.injectModalDetalhesEmprestimo = function injectModalDetalhesEmprestimo() {
     if (qs("#modalDetalhesEmprestimo")) return;
 
@@ -529,6 +516,7 @@
             <div>
               <p class="loan-head__name" data-loan="cliente_nome">Cliente</p>
               <p class="loan-head__sub" data-loan="cliente_tel">—</p>
+              <div id="emprestimoGrupoBadge" style="margin-top:8px;"></div>
             </div>
           </div>
 
@@ -591,7 +579,6 @@
             <div class="pay-history" id="payHistoryList"></div>
           </div>
 
-          <!-- ✅ BOTÃO EXCLUIR NO FINAL (embaixo de tudo) -->
           <div class="hr"></div>
           <div class="modal-section">
             <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
@@ -606,8 +593,6 @@
               Só permitido se não houver pagamentos lançados.
             </div>
           </div>
-
-
         </div>
       </div>
     `;
@@ -615,7 +600,6 @@
     document.body.appendChild(modal);
   };
 
-  // ========= OPEN =========
   window.openDetalhesEmprestimo = async function openDetalhesEmprestimo(emprestimoId, ctx) {
     const modal = document.getElementById("modalDetalhesEmprestimo");
     if (!modal) return;
@@ -635,7 +619,6 @@
       if (el) el.textContent = value ?? "—";
     };
 
-    // loading
     set("cliente_nome", "Carregando...");
     set("cliente_tel", "—");
     set("valor", "—");
@@ -648,17 +631,19 @@
     set("status", "—");
     set("criado_em", "—");
 
+    const grupoBadgeEl = modal.querySelector("#emprestimoGrupoBadge");
+    if (grupoBadgeEl) grupoBadgeEl.innerHTML = "";
+
     const installments = modal.querySelector("#installmentsList");
     const payHist = modal.querySelector("#payHistoryList");
     if (installments) installments.innerHTML = `<div class="muted" style="padding:10px;">Carregando prestações...</div>`;
     if (payHist) payHist.innerHTML = `<div class="muted" style="padding:10px;">Carregando pagamentos...</div>`;
 
-    // botão excluir (final)
     const btnDeleteLoanBottom = modal.querySelector("#btnDeleteLoanBottom");
     if (btnDeleteLoanBottom) {
       btnDeleteLoanBottom.disabled = false;
-      btnDeleteLoanBottom.style.display = ""; // default, depois ajusta pelo status
-      btnDeleteLoanBottom.onclick = null; // limpa
+      btnDeleteLoanBottom.style.display = "";
+      btnDeleteLoanBottom.onclick = null;
     }
 
     try {
@@ -685,6 +670,10 @@
       set("cliente_nome", cli.nome || "—");
       set("cliente_tel", cli.telefone || "—");
 
+      if (grupoBadgeEl) {
+        grupoBadgeEl.innerHTML = grupoBadgeHtml(cli.grupo);
+      }
+
       const principal = toNumber(emp.valor_principal ?? 0);
       const principalC = toCents(principal);
 
@@ -695,7 +684,6 @@
       const tipoTxt = tipoV === "DIARIO" ? "Diário" : tipoV === "SEMANAL" ? "Semanal" : "Mensal";
       set("tipo_venc", tipoTxt);
 
-      // total/parcelas em centavos
       let valorPrestacaoC = 0;
       let totalComJurosC = 0;
 
@@ -712,13 +700,11 @@
         valorPrestacaoC = Math.round(totalComJurosC / totalParcelas);
       }
 
-      // ✅ SETA OS KPIs
       set("valor", moneyFromCents(principalC));
       set("prestacao_hint", `Prestação: ${moneyFromCents(valorPrestacaoC)}`);
       set("juros_label", `Total com juros (${jurosPct || 0}%)`);
       set("total_juros", moneyFromCents(totalComJurosC));
 
-      // ✅ SINCRONIZA "Pago/Falta"
       const quitNova = calcQuitacaoNova(emp, parcelas, pagamentos);
       let faltaC = toCents(quitNova);
 
@@ -735,7 +721,6 @@
 
       set("saldo_hint", `Pago: ${moneyFromCents(pagoC)} • Falta: ${moneyFromCents(faltaC)}`);
 
-      // parcelas pagas
       let pagas = 0;
       if (isQuitado) pagas = totalParcelas;
       else pagas = parcelas.filter((p) => calcSituacaoParcela(p, false, hojeStr, pgMaps).isPagaReal).length;
@@ -759,7 +744,6 @@
         if (btnPay) btnPay.style.display = "none";
         if (btnQuit) btnQuit.style.display = "none";
         if (btnEdit) btnEdit.style.display = "none";
-        // normalmente quitado já tem pagamento, mas deixo escondido pra não poluir
         if (btnDeleteLoanBottom) btnDeleteLoanBottom.style.display = "none";
       } else {
         if (btnPay) btnPay.style.display = "";
@@ -768,7 +752,6 @@
         if (btnDeleteLoanBottom) btnDeleteLoanBottom.style.display = "";
       }
 
-      // handler do botão excluir (final)
       if (btnDeleteLoanBottom && !isQuitado) {
         btnDeleteLoanBottom.onclick = () => excluirEmprestimoUI(id, modal, cli.nome || "");
       }
@@ -809,6 +792,7 @@
             quantidadeParcelas: totalParcelas,
             tipoVencimento: tipoV,
             origem: modal.dataset.origem || "emprestimos",
+            grupo: String(emp.grupo || "PADRAO")
           });
         };
       }
@@ -869,7 +853,6 @@
         };
       }
 
-      // lista de prestações
       if (installments) {
         if (!parcelas.length) {
           installments.innerHTML = `<div class="muted" style="padding:10px;">Nenhuma prestação encontrada.</div>`;
@@ -921,7 +904,6 @@
         }
       }
 
-      // histórico pagamentos (✅ com editar/excluir)
       if (payHist) {
         if (!pagamentos.length) {
           payHist.innerHTML = `<div class="muted" style="padding:10px;">Nenhum pagamento registrado.</div>`;
