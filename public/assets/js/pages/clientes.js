@@ -2,6 +2,7 @@
   const list = document.getElementById("clientesList");
   const countEl = document.getElementById("clientesCount");
   const input = document.getElementById("clientesSearch");
+  const grupoFilter = document.getElementById("clientesGrupoFilter");
   if (!list) return;
 
   const API = "/KRAx/public/api.php";
@@ -62,6 +63,24 @@
     }
 
     return "";
+  }
+
+  function grupoEhNovo(grupo) {
+    return normalizarGrupo(grupo) === "MARIA";
+  }
+
+  function grupoEhAntigo(grupo) {
+    return !grupoEhNovo(grupo);
+  }
+
+  function passaFiltroGrupo(grupo, filtroSelecionado) {
+    const filtro = String(filtroSelecionado ?? "todos").trim().toLowerCase();
+    const g = normalizarGrupo(grupo);
+
+    if (filtro === "novo") return grupoEhNovo(g);
+    if (filtro === "antigo") return grupoEhAntigo(g);
+
+    return true;
   }
 
   function render(clientes) {
@@ -159,13 +178,17 @@
   }
 
   function filtrar() {
-    if (!input) return;
-    const q = input.value.trim().toLowerCase();
+    const q = input ? input.value.trim().toLowerCase() : "";
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
     let visible = 0;
 
     items.forEach((item) => {
       const hay = item.getAttribute("data-filter") || "";
-      const show = hay.includes(q);
+      const grupo = item.getAttribute("data-grupo") || "";
+      const matchTexto = hay.includes(q);
+      const matchGrupo = passaFiltroGrupo(grupo, grupoSelecionado);
+      const show = matchTexto && matchGrupo;
+
       item.style.display = show ? "" : "none";
       if (show) visible++;
     });
@@ -174,11 +197,15 @@
   }
 
   if (input) input.addEventListener("input", filtrar);
+  if (grupoFilter) grupoFilter.addEventListener("change", filtrar);
 
   window.refreshClientesList = function refreshClientesList() {
     const q = input ? input.value : "";
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
+
     carregar().finally(() => {
       if (input) input.value = q;
+      if (grupoFilter) grupoFilter.value = grupoSelecionado;
       filtrar();
     });
   };
