@@ -278,7 +278,7 @@ class ParcelaDAO
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
         INNER JOIN clientes c ON c.id = e.cliente_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND p.data_vencimento <= :data
         ORDER BY p.data_vencimento ASC
     ";
@@ -309,7 +309,7 @@ class ParcelaDAO
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
         INNER JOIN clientes c ON c.id = e.cliente_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND p.data_vencimento BETWEEN :ini AND :fim
         ORDER BY p.data_vencimento ASC
     ";
@@ -323,13 +323,45 @@ class ParcelaDAO
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    /**
+     * ✅ Filtra parcelas pendentes com base na periodicidade do empréstimo.
+     */
+    public function listarVencimentosPorPeriodicidade(string $periodicidade): array
+    {
+        $sql = "
+        SELECT
+            c.id AS cliente_id,
+            c.nome AS cliente_nome,
+            c.grupo AS grupo,
+            e.id AS emprestimo_id,
+            p.id AS parcela_id,
+            p.numero_parcela,
+            p.data_vencimento,
+            e.valor_principal,
+            e.porcentagem_juros,
+            e.quantidade_parcelas,
+            e.tipo_vencimento
+        FROM parcelas p
+        INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+        INNER JOIN clientes c ON c.id = e.cliente_id
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
+          AND e.tipo_vencimento = :tipo
+        ORDER BY p.data_vencimento ASC
+    ";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':tipo' => strtoupper($periodicidade)]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     public function contarVencemHoje(): int
     {
         $sql = "
         SELECT COUNT(*) 
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND DATE(p.data_vencimento) = CURDATE()
           AND e.status <> 'QUITADO'
     ";
@@ -343,7 +375,7 @@ class ParcelaDAO
         SELECT COUNT(*) 
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND DATE(p.data_vencimento) < CURDATE()
           AND e.status <> 'QUITADO'
     ";

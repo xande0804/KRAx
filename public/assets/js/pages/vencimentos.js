@@ -1,11 +1,6 @@
 // public/assets/js/pages/vencimentos.js
 (function () {
   const tabs = document.getElementById("vencTabs");
-
-  const secAtrasados = document.getElementById("secAtrasados");
-  const countAtrasadosEl = document.getElementById("countAtrasados");
-  const listAtrasadosEl = document.getElementById("vencListAtrasados");
-
   const tituloPeriodoEl = document.getElementById("tituloPeriodo");
   const listEl = document.getElementById("vencList");
 
@@ -19,22 +14,30 @@
   const buttons = Array.from(tabs.querySelectorAll(".tab"));
   const API = "/KRAx/public/api.php";
 
-  let currentPeriod = "hoje";
+  // A aba padrão ao abrir a página agora é a 'por_data' (Hoje)
+  let currentPeriod = "por_data";
   window.refreshVencimentos = () => load(currentPeriod);
 
   // ======== state ========
   let cache = {
-    period: "hoje",
+    period: "por_data",
     periodo_label: "Hoje",
-    atrasados: [],
     lista: [],
   };
 
-  // tudo começa FECHADO
-  const expanded = {
-    atrasados: new Set(),
-    periodo: new Set(),
-  };
+  // Sections expansíveis dinâmicas
+  const expanded = {};
+
+  function isExpanded(section, key) {
+    if (!expanded[section]) expanded[section] = new Set();
+    return expanded[section].has(key);
+  }
+
+  function toggleExpanded(section, key) {
+    if (!expanded[section]) expanded[section] = new Set();
+    if (expanded[section].has(key)) expanded[section].delete(key);
+    else expanded[section].add(key);
+  }
 
   function money(v) {
     const num = Number(v);
@@ -73,7 +76,6 @@
     const st = String(status || "").toUpperCase();
     if (st === "ATRASADO") return `<span class="badge badge--danger">Atrasado</span>`;
     if (st === "HOJE") return `<span class="badge badge--info">Hoje</span>`;
-    if (st === "AMANHA") return `<span class="badge">Amanhã</span>`;
     return `<span class="badge">Pendente</span>`;
   }
 
@@ -107,18 +109,17 @@
   }
 
   function getPeriodoLabel(period) {
-    return period === "amanha" ? "Amanhã" : period === "semana" ? "Semana" : "Hoje";
+    if (period === "por_data") return "Hoje";
+    if (period === "amanha") return "Mensais";
+    if (period === "semana") return "Semanais";
+    if (period === "atrasados") return "Atrasados";
+    return "Diários";
   }
 
   function setTituloPeriodo(label, qtd) {
     if (!tituloPeriodoEl) return;
     const nome = label || "Hoje";
     tituloPeriodoEl.textContent = `${nome} (${qtd || 0})`;
-  }
-
-  function setAtrasados(qtd) {
-    if (countAtrasadosEl) countAtrasadosEl.textContent = `Atrasados (${qtd || 0})`;
-    if (secAtrasados) secAtrasados.style.display = qtd > 0 ? "" : "none";
   }
 
   // ======== search helpers ========
@@ -149,7 +150,6 @@
     });
   }
 
-  // ======== grouping ========
   function clienteKey(row) {
     const id = row.cliente_id ?? row.id_cliente ?? "";
     const nome = row.cliente_nome ?? row.nome ?? "";
@@ -177,30 +177,12 @@
     });
   }
 
-  function isExpanded(section, key) {
-    return expanded[section].has(key);
-  }
-
-  function toggleExpanded(section, key) {
-    if (expanded[section].has(key)) expanded[section].delete(key);
-    else expanded[section].add(key);
-  }
-
-  // ======== render ========
-  function renderGrouped(targetEl, rows, { section, emptyMode = "show" } = {}) {
-    if (!targetEl) return;
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-      targetEl.innerHTML =
-        emptyMode === "hide"
-          ? ``
-          : `<div class="muted" style="padding:12px;">Nenhum vencimento.</div>`;
-      return;
-    }
+  function buildGroupedHtml(rows, section) {
+    if (!Array.isArray(rows) || rows.length === 0) return "";
 
     const groups = groupByCliente(rows);
 
-    targetEl.innerHTML = groups
+    return groups
       .map((g) => {
         const keyRaw = String(g.key);
         const keyAttr = esc(keyRaw);
@@ -294,7 +276,40 @@
       .join("");
   }
 
-  // ======== accordion click (delegation) ========
+  function buildMasterAccordion(title, list, keySection) {
+    if (!list || list.length === 0) return "";
+
+    const open = isExpanded("master_atrasados", keySection);
+    const arrow = open ? "▾" : "▸";
+    const qtd = list.length;
+
+    const innerHtml = buildGroupedHtml(list, "atrasados_" + keySection);
+
+    return `
+      <div class="venc-group" data-venc-key="${keySection}" data-venc-section="master_atrasados">
+        <button
+          class="venc-group__head"
+          type="button"
+          data-venc-toggle="1"
+          data-venc-section="master_atrasados"
+          data-venc-key="${keySection}"
+          aria-expanded="${open ? "true" : "false"}"
+        >
+          <span class="venc-group__count">(${qtd})</span>
+          <span class="venc-group__name">
+            <span class="warn-icon" style="margin-right: 4px;">⛔</span>
+            <strong>${title}</strong>
+          </span>
+          <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
+        </button>
+
+        <div class="venc-group__body" style="display:${open ? "" : "none"};">
+          ${innerHtml}
+        </div>
+      </div>
+    `;
+  }
+
   function wireAccordionClicks(container) {
     if (!container) return;
 
@@ -323,90 +338,98 @@
     });
   }
 
-  wireAccordionClicks(listAtrasadosEl);
   wireAccordionClicks(listEl);
 
-  // ======== fetch/load ========
   async function fetchVencimentos(period) {
     const map = {
-      hoje: "vencimentos/hoje",
-      amanha: "vencimentos/amanha",
+      por_data: "vencimentos/por_data",
+      hoje: "vencimentos/hoje", // Aba Diários
       semana: "vencimentos/semana",
+      amanha: "vencimentos/amanha", // Aba Mensais
+      atrasados: "vencimentos/atrasados",
     };
 
-    const route = map[period] || map.hoje;
+    const route = map[period] || map.por_data;
+    const url = `${API}?route=${route}`;
 
-    const res = await fetch(`${API}?route=${route}`);
+    const res = await fetch(url);
     const json = await res.json();
 
     if (!json.ok) throw new Error(json.mensagem || "Erro ao buscar vencimentos");
 
-    return json.dados || { atrasados: [], lista: [], periodo_label: "" };
+    return json.dados || { lista: [], atrasados: [], periodo_label: "" };
   }
 
   function rerenderWithSearch() {
     const q = searchInput ? searchInput.value : "";
-
-    const atrasadosFiltrados = applyFilter(cache.atrasados, q);
     const listaFiltrada = applyFilter(cache.lista, q);
 
-    setAtrasados(atrasadosFiltrados.length);
-    setTituloPeriodo(cache.periodo_label || getPeriodoLabel(cache.period), listaFiltrada.length);
+    // Na aba Hoje, ajustamos o título para sempre exibir "Hoje" em vez da data formatada no título principal
+    const titleLabel = cache.period === "por_data" ? "Hoje" : (cache.periodo_label || getPeriodoLabel(cache.period));
+    setTituloPeriodo(titleLabel, listaFiltrada.length);
 
-    if (listAtrasadosEl) {
-      renderGrouped(listAtrasadosEl, atrasadosFiltrados, {
-        section: "atrasados",
-        emptyMode: "hide",
-      });
+    if (cache.period === "atrasados") {
+      const diarios = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "DIARIO");
+      const semanais = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "SEMANAL");
+      const mensais = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "MENSAL");
+
+      let html = "";
+
+      html += buildMasterAccordion("Atrasados Diários", diarios, "diario");
+      html += buildMasterAccordion("Atrasados Semanais", semanais, "semanal");
+      html += buildMasterAccordion("Atrasados Mensais", mensais, "mensal");
+
+      if (!html) {
+        html = `<div class="muted" style="padding:12px;">Nenhum cliente em atraso.</div>`;
+      }
+
+      listEl.innerHTML = html;
+    } else {
+      const htmlNormal = buildGroupedHtml(listaFiltrada, "periodo");
+      listEl.innerHTML = htmlNormal || `<div class="muted" style="padding:12px;">Nenhum vencimento encontrado.</div>`;
     }
-
-    renderGrouped(listEl, listaFiltrada, { section: "periodo" });
   }
 
   async function load(period) {
     const fallbackLabel = getPeriodoLabel(period);
 
-    if (listAtrasadosEl) listAtrasadosEl.innerHTML = `<div class="muted" style="padding:12px;">Carregando...</div>`;
     listEl.innerHTML = `<div class="muted" style="padding:12px;">Carregando...</div>`;
-
-    setAtrasados(0);
     setTituloPeriodo(fallbackLabel, 0);
 
     try {
       const dados = await fetchVencimentos(period);
 
+      const atrasados = Array.isArray(dados.atrasados) ? dados.atrasados : [];
+      const normais = Array.isArray(dados.lista) ? dados.lista : [];
+
       cache = {
         period,
         periodo_label: String(dados.periodo_label || "").trim() || fallbackLabel,
-        atrasados: Array.isArray(dados.atrasados) ? dados.atrasados : [],
-        lista: Array.isArray(dados.lista) ? dados.lista : [],
+        lista: [...atrasados, ...normais],
       };
 
       rerenderWithSearch();
     } catch (e) {
       console.error(e);
 
-      cache = { period, periodo_label: fallbackLabel, atrasados: [], lista: [] };
+      cache = { period, periodo_label: fallbackLabel, lista: [] };
 
-      setAtrasados(0);
-      if (listAtrasadosEl) listAtrasadosEl.innerHTML = "";
       listEl.innerHTML = `<div class="muted" style="padding:12px;">Erro: ${esc(e.message)}</div>`;
       setTituloPeriodo(fallbackLabel, 0);
     }
   }
 
-  // ======== tabs ========
+  // --- CONTROLE DE ABAS ---
   buttons.forEach((btn) => {
     btn.addEventListener("click", () => {
       buttons.forEach((b) => b.classList.remove("is-active"));
       btn.classList.add("is-active");
 
-      currentPeriod = btn.getAttribute("data-filter") || "hoje";
+      currentPeriod = btn.getAttribute("data-filter") || "por_data";
       load(currentPeriod);
     });
   });
 
-  // ======== search ========
   if (searchInput) {
     let t = null;
     searchInput.addEventListener("input", () => {
@@ -415,12 +438,12 @@
     });
   }
 
-  // ======== grupo filter ========
   if (grupoFilter) {
     grupoFilter.addEventListener("change", () => {
       rerenderWithSearch();
     });
   }
 
+  // Inicia carregando a aba 'Hoje'
   load(currentPeriod);
 })();
