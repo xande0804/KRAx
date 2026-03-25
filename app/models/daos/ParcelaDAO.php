@@ -210,17 +210,14 @@ class ParcelaDAO
         $valorParcela = round((float)($row['valor_parcela'] ?? 0), 2);
         $valorAtual   = round((float)($row['valor_pago'] ?? 0), 2);
 
-        // novo valor com clamp
         $novo = round($valorAtual + $delta, 2);
         if ($novo < 0) $novo = 0.0;
         if ($valorParcela > 0 && $novo > $valorParcela) $novo = $valorParcela;
 
-        // define status
         if ($valorParcela > 0 && $novo + 0.00001 >= $valorParcela) {
             $novo = $valorParcela;
             $status = 'PAGA';
 
-            // mantém pago_em se já existia; senão seta agora
             $sql = "UPDATE parcelas
                     SET valor_pago = :vp,
                         status = :st,
@@ -229,7 +226,6 @@ class ParcelaDAO
         } elseif ($novo > 0) {
             $status = 'PARCIAL';
 
-            // ao voltar pra parcial, remove pago_em
             $sql = "UPDATE parcelas
                     SET valor_pago = :vp,
                         status = :st,
@@ -270,6 +266,7 @@ class ParcelaDAO
         SELECT
             c.id AS cliente_id,
             c.nome AS cliente_nome,
+            c.grupo AS grupo,
             e.id AS emprestimo_id,
             p.id AS parcela_id,
             p.numero_parcela,
@@ -300,6 +297,7 @@ class ParcelaDAO
         SELECT
             c.id AS cliente_id,
             c.nome AS cliente_nome,
+            c.grupo AS grupo,
             e.id AS emprestimo_id,
             p.id AS parcela_id,
             p.numero_parcela,

@@ -9,7 +9,10 @@
   const tituloPeriodoEl = document.getElementById("tituloPeriodo");
   const listEl = document.getElementById("vencList");
 
-  const searchInput = document.getElementById("vencSearch"); // ✅ searchbar
+  const searchInput = document.getElementById("vencSearch");
+  const grupoFilter =
+    document.getElementById("vencGrupoFilter") ||
+    document.getElementById("vencimentosGrupoFilter");
 
   if (!tabs || !listEl) return;
 
@@ -27,7 +30,7 @@
     lista: [],
   };
 
-  // ✅ tudo começa FECHADO (atrasados e período)
+  // tudo começa FECHADO
   const expanded = {
     atrasados: new Set(),
     periodo: new Set(),
@@ -74,6 +77,35 @@
     return `<span class="badge">Pendente</span>`;
   }
 
+  function normalizarGrupo(grupo) {
+    const g = String(grupo ?? "PADRAO").trim().toUpperCase();
+    return g || "PADRAO";
+  }
+
+  function grupoEhNovo(grupo) {
+    return normalizarGrupo(grupo) === "MARIA";
+  }
+
+  function grupoEhAntigo(grupo) {
+    return !grupoEhNovo(grupo);
+  }
+
+  function badgeGrupoHtml(grupo) {
+    return grupoEhNovo(grupo)
+      ? `<span class="badge badge--maria">Novo</span>`
+      : ``;
+  }
+
+  function passaFiltroGrupo(grupo, filtroSelecionado) {
+    const filtro = String(filtroSelecionado ?? "todos").trim().toLowerCase();
+    const g = normalizarGrupo(grupo);
+
+    if (filtro === "novo") return grupoEhNovo(g);
+    if (filtro === "antigo") return grupoEhAntigo(g);
+
+    return true;
+  }
+
   function getPeriodoLabel(period) {
     return period === "amanha" ? "Amanhã" : period === "semana" ? "Semana" : "Hoje";
   }
@@ -102,13 +134,19 @@
     const nome = row.cliente_nome || row.nome || "";
     const cpf = row.cliente_cpf || row.cpf || row.documento || "";
     const tel = row.cliente_telefone || row.telefone || row.fone || "";
-    return norm([nome, cpf, tel].filter(Boolean).join(" "));
+    const grupo = row.grupo || "";
+    return norm([nome, cpf, tel, grupo].filter(Boolean).join(" "));
   }
 
   function applyFilter(rows, q) {
     const query = norm(q);
-    if (!query) return rows;
-    return (Array.isArray(rows) ? rows : []).filter((r) => rowSearchText(r).includes(query));
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
+
+    return (Array.isArray(rows) ? rows : []).filter((r) => {
+      const matchTexto = !query || rowSearchText(r).includes(query);
+      const matchGrupo = passaFiltroGrupo(r.grupo, grupoSelecionado);
+      return matchTexto && matchGrupo;
+    });
   }
 
   // ======== grouping ========
@@ -127,6 +165,7 @@
           key,
           cliente_id: row.cliente_id ?? row.id_cliente ?? null,
           cliente_nome: row.cliente_nome ?? row.nome ?? "—",
+          grupo: normalizarGrupo(row.grupo),
           rows: [],
         });
       }
@@ -167,6 +206,7 @@
         const keyAttr = esc(keyRaw);
         const nome = esc(g.cliente_nome || "—");
         const qtd = g.rows.length;
+        const grupo = normalizarGrupo(g.grupo);
 
         const open = isExpanded(section, keyRaw);
         const arrow = open ? "▾" : "▸";
@@ -185,16 +225,18 @@
 
             const status = String(row.status || "").toUpperCase();
             const isAtrasado = status === "ATRASADO";
+            const grupoRow = normalizarGrupo(row.grupo);
 
             const emprestimoInfo = `Prestação ${parcelaNum} • ${valorTxt} • Venc: ${venc}`;
 
             return `
-              <article class="list-item venc-item" data-status="${isAtrasado ? "atrasado" : "pendente"}">
+              <article class="list-item venc-item" data-status="${isAtrasado ? "atrasado" : "pendente"}" data-grupo="${esc(grupoRow)}">
                 <div class="venc-left">
                   <div class="venc-title">
                     ${isAtrasado ? `<span class="warn-dot">!</span>` : ``}
                     <strong>${nome}</strong>
                     ${badgeHtml(status)}
+                    ${badgeGrupoHtml(grupoRow)}
                   </div>
 
                   <div class="venc-meta">
@@ -226,7 +268,7 @@
           .join("");
 
         return `
-          <div class="venc-group" data-venc-key="${keyAttr}" data-venc-section="${esc(section)}">
+          <div class="venc-group" data-venc-key="${keyAttr}" data-venc-section="${esc(section)}" data-grupo="${esc(grupo)}">
             <button
               class="venc-group__head"
               type="button"
@@ -235,9 +277,12 @@
               data-venc-section="${esc(section)}"
               aria-expanded="${open ? "true" : "false"}"
             >
-            <span class="venc-group__count">(${qtd})</span>
-            <span class="venc-group__name"><strong>${nome}</strong></span>
-            <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
+              <span class="venc-group__count">(${qtd})</span>
+              <span class="venc-group__name">
+                <strong>${nome}</strong>
+                ${badgeGrupoHtml(grupo)}
+              </span>
+              <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
             </button>
 
             <div class="venc-group__body" style="display:${open ? "" : "none"};">
@@ -265,7 +310,6 @@
 
       if (!key) return;
 
-      // toggle state
       toggleExpanded(section, key);
 
       const open = isExpanded(section, key);
@@ -368,6 +412,13 @@
     searchInput.addEventListener("input", () => {
       if (t) clearTimeout(t);
       t = setTimeout(() => rerenderWithSearch(), 120);
+    });
+  }
+
+  // ======== grupo filter ========
+  if (grupoFilter) {
+    grupoFilter.addEventListener("change", () => {
+      rerenderWithSearch();
     });
   }
 

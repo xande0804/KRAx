@@ -30,14 +30,28 @@ require __DIR__ . '/layouts/header.php';
   </button>
 </div>
 
-<div class="searchbar">
-  <span class="searchbar__icon">🔎</span>
-  <input
-    id="clientesSearch"
-    class="input input--search"
-    type="text"
-    placeholder="Buscar por nome, CPF ou telefone..."
-  />
+<div class="page-row" style="align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px;">
+  
+  <!-- Busca -->
+  <div class="searchbar" style="flex: 1; min-width: 260px;">
+    <span class="searchbar__icon">🔎</span>
+    <input
+      id="clientesSearch"
+      class="input input--search"
+      type="text"
+      placeholder="Buscar por nome, CPF ou telefone..."
+    />
+  </div>
+
+  <!-- Filtro grupo (direita) -->
+  <div style="min-width: 220px;">
+    <select id="clientesGrupoFilter" class="input">
+      <option value="todos">Todos os grupos</option>
+      <option value="antigo">Apenas grupo antigo</option>
+      <option value="novo">Apenas grupo novo</option>
+    </select>
+  </div>
+
 </div>
 
 <section class="list" id="clientesList"></section>

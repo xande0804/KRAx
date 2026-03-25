@@ -600,7 +600,6 @@ class EmprestimoController
             $hoje = new DateTime($hojeStr);
 
             $amanha = (new DateTime($hojeStr))->modify('+1 day');
-            $amanhaStr = $amanha->format('Y-m-d');
 
             $parcelaDao = new ParcelaDAO();
 
@@ -698,6 +697,7 @@ class EmprestimoController
                 'data_vencimento' => $dataV,
                 'valor' => $valorPrestacao,
                 'status' => $statusForcado,
+                'grupo' => strtoupper(trim((string)($row['grupo'] ?? 'PADRAO'))),
             ];
         }
 
