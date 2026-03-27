@@ -510,21 +510,21 @@ class EmprestimoController
                 throw new InvalidArgumentException("O primeiro vencimento (MENSAL) não pode ser menor que a data do empréstimo.");
             }
 
-            $cur = clone $first;
-            for ($i = 1; $i <= $n; $i++) {
-                $due = clone $cur;
-
-                $this->ajustarSeDomingo($due);
-
-                if ($i === $n) {
-                    return $due->format('Y-m-d');
-                }
-
-                $cur = clone $due;
-                $cur->modify('+1 month');
+            // NOVA LÓGICA MENSAL: Previne pulos de data e não carrega o ajuste do domingo para o mês seguinte
+            $mesesAAdicionar = $n - 1;
+            $due = clone $first;
+            
+            if ($mesesAAdicionar > 0) {
+                $diaOriginal = (int)$first->format('d');
+                $due->modify('first day of this month');
+                $due->modify("+{$mesesAAdicionar} month");
+                $maxDiaDoMes = (int)$due->format('t');
+                $diaReal = min($diaOriginal, $maxDiaDoMes);
+                $due->setDate((int)$due->format('Y'), (int)$due->format('m'), $diaReal);
             }
 
-            return $first->format('Y-m-d');
+            $this->ajustarSeDomingo($due);
+            return $due->format('Y-m-d');
         }
 
         if ($tipo === 'SEMANAL') {
@@ -651,7 +651,6 @@ class EmprestimoController
         }
     }
 
-    // --- NOVO MÉTODO (Atualizado): Busca Atrasados GERAIS + Vencimentos exatos do dia selecionado ---
     public function vencimentosPorData(): void
     {
         try {
@@ -661,28 +660,23 @@ class EmprestimoController
 
             $parcelaDao = new ParcelaDAO();
             
-            // Para não duplicar resultados, buscamos tudo até a data pesquisada (ou até hoje, o que for maior)
             $dataMax = ($dataStr > $hojeStr) ? $data : new DateTime($hojeStr);
             $rows = $parcelaDao->listarVencimentos($dataMax);
 
             $atrasados = [];
             $listaDia = [];
 
-            // Filtramos exatamente o que o usuário pediu no PHP
             foreach ($rows as $row) {
                 $dataV = substr((string)$row['data_vencimento'], 0, 10);
                 
-                // 1. É parcela atrasada (venceu antes de hoje)
                 if ($dataV < $hojeStr) {
                     $atrasados[] = $row;
                 } 
-                // 2. É parcela que vence EXATAMENTE no dia que ele buscou
                 elseif ($dataV === $dataStr) {
                     $listaDia[] = $row;
                 }
             }
 
-            // Se ele selecionou a data de hoje, a badge do dia será 'HOJE'. Se for outra data, será 'PENDENTE'.
             $statusForcado = ($dataStr === $hojeStr) ? 'HOJE' : 'PENDENTE';
             $dataFormatada = $data->format('d/m/Y');
 
@@ -760,6 +754,8 @@ class EmprestimoController
             $saida[] = [
                 'cliente_id' => (int)$row['cliente_id'],
                 'cliente_nome' => $row['cliente_nome'],
+                'cliente_cpf' => $row['cliente_cpf'] ?? '',           // Agora recebe o CPF!
+                'cliente_telefone' => $row['cliente_telefone'] ?? '', // Agora recebe o Telefone!
                 'emprestimo_id' => (int)$row['emprestimo_id'],
                 'parcela_id' => (int)$row['parcela_id'],
                 'parcela_num' => isset($row['numero_parcela']) ? (int)$row['numero_parcela'] : null,

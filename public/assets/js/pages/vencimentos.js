@@ -14,18 +14,15 @@
   const buttons = Array.from(tabs.querySelectorAll(".tab"));
   const API = "/KRAx/public/api.php";
 
-  // A aba padrão ao abrir a página agora é a 'por_data' (Hoje)
   let currentPeriod = "por_data";
   window.refreshVencimentos = () => load(currentPeriod);
 
-  // ======== state ========
   let cache = {
     period: "por_data",
     periodo_label: "Hoje",
     lista: [],
   };
 
-  // Sections expansíveis dinâmicas
   const expanded = {};
 
   function isExpanded(section, key) {
@@ -122,7 +119,7 @@
     tituloPeriodoEl.textContent = `${nome} (${qtd || 0})`;
   }
 
-  // ======== search helpers ========
+  // ======== BUSCA INTELIGENTE (SEM PONTUAÇÃO) ========
   function norm(s) {
     return String(s || "")
       .toLowerCase()
@@ -136,19 +133,46 @@
     const cpf = row.cliente_cpf || row.cpf || row.documento || "";
     const tel = row.cliente_telefone || row.telefone || row.fone || "";
     const grupo = row.grupo || "";
-    return norm([nome, cpf, tel, grupo].filter(Boolean).join(" "));
+
+    // Versões limpas (só números) do CPF e Telefone
+    const cpfLimpo = cpf.replace(/\D/g, "");
+    const telLimpo = tel.replace(/\D/g, "");
+
+    // Junta tudo (com e sem pontuação) num "linguição" gigante para o buscador
+    return norm([nome, cpf, tel, cpfLimpo, telLimpo, grupo].filter(Boolean).join(" "));
   }
 
   function applyFilter(rows, q) {
-    const query = norm(q);
+    const rawQ = String(q || "");
+    const qNorm = norm(rawQ);
+    const qNumeros = rawQ.replace(/\D/g, ""); // Pega só os números do que o usuário digitou
+    const termos = qNorm.split(/\s+/).filter(Boolean); // Divide a busca por espaços (ex: "Kaua 61")
+
     const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
 
     return (Array.isArray(rows) ? rows : []).filter((r) => {
-      const matchTexto = !query || rowSearchText(r).includes(query);
+      const textoBusca = rowSearchText(r);
+
+      let matchTexto = true;
+      
+      // Se o usuário digitou algo na busca
+      if (termos.length > 0) {
+        // Verifica se a sequência de números exata existe (ex: 6185101778)
+        const bateNumeros = qNumeros && textoBusca.includes(qNumeros);
+        
+        // Verifica se todas as palavras digitadas existem na linha (ex: "Kaua" e "61")
+        const bateTermos = termos.every(t => textoBusca.includes(t));
+
+        if (!bateNumeros && !bateTermos) {
+          matchTexto = false;
+        }
+      }
+
       const matchGrupo = passaFiltroGrupo(r.grupo, grupoSelecionado);
       return matchTexto && matchGrupo;
     });
   }
+  // ===================================================
 
   function clienteKey(row) {
     const id = row.cliente_id ?? row.id_cliente ?? "";
@@ -276,34 +300,40 @@
       .join("");
   }
 
-  function buildMasterAccordion(title, list, keySection) {
+  function buildMasterAccordion(title, list, keySection, theme = "normal") {
     if (!list || list.length === 0) return "";
 
-    const open = isExpanded("master_atrasados", keySection);
+    const open = isExpanded("master_accordion", keySection);
     const arrow = open ? "▾" : "▸";
     const qtd = list.length;
 
-    const innerHtml = buildGroupedHtml(list, "atrasados_" + keySection);
+    const innerHtml = buildGroupedHtml(list, "inner_" + keySection);
+    
+    const bgCor = theme === "danger" ? "#fef2f2" : "#f8fafc"; 
+    const txtCor = theme === "danger" ? "#dc2626" : "#334155";
+    const borderCor = theme === "danger" ? "#fca5a5" : "#e2e8f0";
+    const iconHtml = theme === "danger" ? `<span class="warn-icon" style="margin-right: 8px; font-size: 1.1em;">⛔</span>` : ``;
 
     return `
-      <div class="venc-group" data-venc-key="${keySection}" data-venc-section="master_atrasados">
+      <div class="venc-group" data-venc-key="${keySection}" data-venc-section="master_accordion" style="margin-bottom: 16px; border: 1px solid ${borderCor}; border-radius: 8px; overflow: hidden; background-color: #fff;">
         <button
           class="venc-group__head"
           type="button"
           data-venc-toggle="1"
-          data-venc-section="master_atrasados"
+          data-venc-section="master_accordion"
           data-venc-key="${keySection}"
           aria-expanded="${open ? "true" : "false"}"
+          style="background-color: ${bgCor}; color: ${txtCor}; border: none; padding: 14px 20px; display: flex; align-items: center; border-bottom: ${open ? `1px solid ${borderCor}` : 'none'}; border-radius: 0;"
         >
-          <span class="venc-group__count">(${qtd})</span>
-          <span class="venc-group__name">
-            <span class="warn-icon" style="margin-right: 4px;">⛔</span>
-            <strong>${title}</strong>
+          <span class="venc-group__name" style="flex-grow: 1; font-size: 1.05em; font-weight: bold; letter-spacing: 0.3px;">
+            ${iconHtml}
+            ${title}
           </span>
-          <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
+          <span class="venc-group__count" style="margin-right: 12px; font-weight: bold; background: rgba(0,0,0,0.06); padding: 2px 10px; border-radius: 12px; font-size: 0.9em;">${qtd}</span>
+          <span class="venc-group__arrow" aria-hidden="true" style="font-size: 1.2em;">${arrow}</span>
         </button>
 
-        <div class="venc-group__body" style="display:${open ? "" : "none"};">
+        <div class="venc-group__body" style="display:${open ? "block" : "none"}; padding: 16px 12px 16px 24px;">
           ${innerHtml}
         </div>
       </div>
@@ -331,10 +361,16 @@
 
       const body = group.querySelector(".venc-group__body");
       const arrow = group.querySelector(".venc-group__arrow");
-
-      if (body) body.style.display = open ? "" : "none";
+      
+      if (body) body.style.display = open ? "block" : "none";
       if (arrow) arrow.textContent = open ? "▾" : "▸";
       btn.setAttribute("aria-expanded", open ? "true" : "false");
+      
+      if (section === "master_accordion") {
+        const isDanger = btn.style.backgroundColor.includes("fef2f2") || btn.style.backgroundColor.includes("rgb(254, 242, 242)");
+        const borderCor = isDanger ? "#fca5a5" : "#e2e8f0";
+        btn.style.borderBottom = open ? `1px solid ${borderCor}` : 'none';
+      }
     });
   }
 
@@ -343,9 +379,9 @@
   async function fetchVencimentos(period) {
     const map = {
       por_data: "vencimentos/por_data",
-      hoje: "vencimentos/hoje", // Aba Diários
+      hoje: "vencimentos/hoje",
       semana: "vencimentos/semana",
-      amanha: "vencimentos/amanha", // Aba Mensais
+      amanha: "vencimentos/amanha",
       atrasados: "vencimentos/atrasados",
     };
 
@@ -364,23 +400,28 @@
     const q = searchInput ? searchInput.value : "";
     const listaFiltrada = applyFilter(cache.lista, q);
 
-    // Na aba Hoje, ajustamos o título para sempre exibir "Hoje" em vez da data formatada no título principal
     const titleLabel = cache.period === "por_data" ? "Hoje" : (cache.periodo_label || getPeriodoLabel(cache.period));
     setTituloPeriodo(titleLabel, listaFiltrada.length);
 
-    if (cache.period === "atrasados") {
+    if (cache.period === "atrasados" || cache.period === "por_data") {
       const diarios = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "DIARIO");
       const semanais = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "SEMANAL");
       const mensais = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "MENSAL");
 
       let html = "";
 
-      html += buildMasterAccordion("Atrasados Diários", diarios, "diario");
-      html += buildMasterAccordion("Atrasados Semanais", semanais, "semanal");
-      html += buildMasterAccordion("Atrasados Mensais", mensais, "mensal");
+      if (cache.period === "atrasados") {
+        html += buildMasterAccordion("Atrasados Diários", diarios, "atrasados_diario", "danger");
+        html += buildMasterAccordion("Atrasados Semanais", semanais, "atrasados_semanal", "danger");
+        html += buildMasterAccordion("Atrasados Mensais", mensais, "atrasados_mensal", "danger");
+      } else {
+        html += buildMasterAccordion("Vencimentos Diários", diarios, "hoje_diario", "normal");
+        html += buildMasterAccordion("Vencimentos Semanais", semanais, "hoje_semanal", "normal");
+        html += buildMasterAccordion("Vencimentos Mensais", mensais, "hoje_mensal", "normal");
+      }
 
       if (!html) {
-        html = `<div class="muted" style="padding:12px;">Nenhum cliente em atraso.</div>`;
+        html = `<div class="muted" style="padding:12px;">Nenhum vencimento encontrado.</div>`;
       }
 
       listEl.innerHTML = html;
@@ -444,6 +485,5 @@
     });
   }
 
-  // Inicia carregando a aba 'Hoje'
   load(currentPeriod);
 })();

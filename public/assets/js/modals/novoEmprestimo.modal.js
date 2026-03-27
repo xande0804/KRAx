@@ -49,11 +49,20 @@
     return `${yy}-${mm}-${dd}`;
   }
 
+  // --- CORREÇÃO: Função agora previne o "Bug de Fevereiro" travando no último dia útil do mês ---
   function addMonthsISO(iso, months) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return "";
-    const [y, m, d] = iso.split("-").map((x) => Number(x));
-    const dt = new Date(y, m - 1, d);
-    dt.setMonth(dt.getMonth() + Number(months || 0));
+    const [y, m, d] = iso.split("-").map(Number);
+    
+    // Seta pro dia 1º do mês alvo primeiro para evitar pulos indesejados
+    const dt = new Date(y, (m - 1) + Number(months || 0), 1);
+    
+    // Descobre qual é o último dia do novo mês
+    const maxDay = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+    
+    // Seta o dia, respeitando o limite do mês (ex: 31 em Fev vira 28)
+    dt.setDate(Math.min(d, maxDay));
+    
     const yy = dt.getFullYear();
     const mm = String(dt.getMonth() + 1).padStart(2, "0");
     const dd = String(dt.getDate()).padStart(2, "0");
@@ -848,7 +857,11 @@
         hideSuggest();
 
         toast("Empréstimo criado!");
-        window.location.href = "emprestimos.php";
+        
+        // --- CORREÇÃO DO ERRO 404: 
+        // Em vez de te jogar num arquivo que não existe, recarrega a página que você já está! ---
+        window.location.reload();
+
       } catch (err) {
         console.error(err);
         if (btnSubmit) btnSubmit.disabled = false;
@@ -934,4 +947,144 @@
 
   window.injectModalNovoEmprestimo = injectModalNovoEmprestimo;
   window.openNovoEmprestimo = openNovoEmprestimo;
+
+  // Renderiza a lista se a página tiver a div
+  const list = document.getElementById("clientesList");
+  const countEl = document.getElementById("clientesCount");
+  const input = document.getElementById("clientesSearch");
+  const grupoFilter = document.getElementById("clientesGrupoFilter");
+  
+  if (!list) return;
+
+  const API = "/KRAx/public/api.php";
+  let items = [];
+
+  function render(clientes) {
+    list.innerHTML = "";
+
+    clientes.forEach((c) => {
+      const nome = escapeHtml(c.nome);
+      const telefoneRaw = c.telefone || "";
+      const telefone = escapeHtml(telefoneRaw || "—");
+      const cpf = escapeHtml(c.cpf || "");
+      const grupo = normalizarGrupo(c.grupo);
+
+      const wa = toWaNumberOrEmpty(telefoneRaw);
+      const waLink = wa ? `https://wa.me/${wa}` : "";
+
+      const article = document.createElement("article");
+      article.className = "list-item";
+      article.setAttribute("data-filter", `${nome} ${telefone} ${cpf} ${grupo}`.toLowerCase());
+      article.setAttribute("data-grupo", grupo);
+
+      const wppBtn = waLink
+        ? `
+          <a
+            class="iconbtn iconbtn--wpp"
+            href="${waLink}"
+            target="_blank"
+            rel="noopener"
+            title="Abrir WhatsApp"
+            aria-label="Abrir WhatsApp"
+          >
+            ${wppSvg()}
+          </a>
+        `
+        : `
+          <span
+            class="iconbtn iconbtn--lock is-disabled"
+            title="Telefone inválido / ausente"
+            aria-label="Telefone inválido / ausente"
+          >
+            ${lockSvg()}
+          </span>
+        `;
+
+      article.innerHTML = `
+        <div class="list-item__main">
+          <div class="list-item__title">
+            <strong>${nome}</strong>
+            ${c.tem_emprestimo_ativo == 1
+              ? `<span class="badge badge--active">Empréstimo ativo</span>`
+              : `<span class="badge">Sem empréstimo</span>`
+            }
+            ${badgeGrupoHtml(grupo)}
+          </div>
+          <div class="list-item__sub">${telefone}</div>
+        </div>
+
+        <div class="list-item__actions">
+          ${wppBtn}
+
+          <button class="linkbtn" type="button" data-modal-open="detalhesCliente" data-cliente-id="${c.id}">
+            👁️ Detalhes
+          </button>
+
+          <button
+            class="linkbtn"
+            type="button"
+            data-modal-open="novoEmprestimo"
+            data-cliente-id="${c.id}"
+            data-cliente-nome="${nome}"
+            data-cliente-grupo="${grupo}"
+          >
+            💸 Empréstimo
+          </button>
+        </div>
+      `;
+
+      list.appendChild(article);
+    });
+
+    items = Array.from(list.querySelectorAll(".list-item"));
+    if (countEl) countEl.textContent = String(items.length);
+    filtrar();
+  }
+
+  async function carregar() {
+    const res = await fetch(`${API}?route=clientes/listar`);
+    const json = await res.json();
+
+    if (!json.ok) {
+      alert(json.mensagem || "Erro ao carregar clientes");
+      return;
+    }
+
+    render(json.dados || []);
+  }
+
+  function filtrar() {
+    const q = input ? input.value.trim().toLowerCase() : "";
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
+    let visible = 0;
+
+    items.forEach((item) => {
+      const hay = item.getAttribute("data-filter") || "";
+      const grupo = item.getAttribute("data-grupo") || "";
+      const matchTexto = hay.includes(q);
+      const matchGrupo = passaFiltroGrupo(grupo, grupoSelecionado);
+      const show = matchTexto && matchGrupo;
+
+      item.style.display = show ? "" : "none";
+      if (show) visible++;
+    });
+
+    if (countEl) countEl.textContent = String(visible);
+  }
+
+  if (input) input.addEventListener("input", filtrar);
+  if (grupoFilter) grupoFilter.addEventListener("change", filtrar);
+
+  window.refreshClientesList = function refreshClientesList() {
+    const q = input ? input.value : "";
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
+
+    carregar().finally(() => {
+      if (input) input.value = q;
+      if (grupoFilter) grupoFilter.value = grupoSelecionado;
+      filtrar();
+    });
+  };
+
+  carregar();
 })();
