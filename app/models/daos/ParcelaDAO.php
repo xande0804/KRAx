@@ -12,9 +12,6 @@ class ParcelaDAO
         $this->pdo = Database::conectar();
     }
 
-    /**
-     * Útil pra transações (edição/correção precisa ser atômica).
-     */
     public function getPdo(): PDO
     {
         return $this->pdo;
@@ -136,9 +133,6 @@ class ParcelaDAO
         ]);
     }
 
-    /**
-     * 🔥 VERSÃO DEFINITIVA — sem loop, sem float bug
-     */
     public function adicionarPagamentoNaParcela(int $parcelaId, float $valor): bool
     {
         if ($parcelaId <= 0 || $valor <= 0) return false;
@@ -193,12 +187,6 @@ class ParcelaDAO
         ]);
     }
 
-    /**
-     * ✅ Ajusta valor_pago com delta (pode ser + ou -) e recalcula status/pago_em.
-     * - Se ficar >= valor_parcela => PAGA e pago_em = NOW() (se ainda não tiver)
-     * - Se ficar entre (0 e valor_parcela) => PARCIAL e limpa pago_em
-     * - Se ficar 0 => ABERTA e limpa pago_em
-     */
     public function ajustarPagamentoNaParcela(int $parcelaId, float $delta): bool
     {
         if ($parcelaId <= 0) return false;
@@ -249,9 +237,6 @@ class ParcelaDAO
         ]);
     }
 
-    /**
-     * ✅ Atalho: remove valor de uma parcela (reverte pagamento).
-     */
     public function removerPagamentoDaParcela(int $parcelaId, float $valor): bool
     {
         if ($parcelaId <= 0 || $valor <= 0) return false;
@@ -266,6 +251,8 @@ class ParcelaDAO
         SELECT
             c.id AS cliente_id,
             c.nome AS cliente_nome,
+            c.cpf AS cliente_cpf,
+            c.telefone AS cliente_telefone,
             c.grupo AS grupo,
             e.id AS emprestimo_id,
             p.id AS parcela_id,
@@ -297,6 +284,8 @@ class ParcelaDAO
         SELECT
             c.id AS cliente_id,
             c.nome AS cliente_nome,
+            c.cpf AS cliente_cpf,
+            c.telefone AS cliente_telefone,
             c.grupo AS grupo,
             e.id AS emprestimo_id,
             p.id AS parcela_id,
@@ -323,15 +312,14 @@ class ParcelaDAO
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    /**
-     * ✅ Filtra parcelas pendentes com base na periodicidade do empréstimo.
-     */
     public function listarVencimentosPorPeriodicidade(string $periodicidade): array
     {
         $sql = "
         SELECT
             c.id AS cliente_id,
             c.nome AS cliente_nome,
+            c.cpf AS cliente_cpf,
+            c.telefone AS cliente_telefone,
             c.grupo AS grupo,
             e.id AS emprestimo_id,
             p.id AS parcela_id,
