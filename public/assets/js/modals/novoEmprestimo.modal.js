@@ -934,4 +934,5 @@
 
   window.injectModalNovoEmprestimo = injectModalNovoEmprestimo;
   window.openNovoEmprestimo = openNovoEmprestimo;
+  
 })();
