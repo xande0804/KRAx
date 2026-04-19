@@ -7,6 +7,7 @@ $pageCss = [
   'badges',
   'tabs',
   'vencimentos',
+  'badges',
 ];
 
 $pageJs = [
@@ -21,14 +22,14 @@ require __DIR__ . '/layouts/header.php';
   <p class="page-sub">Acompanhe os vencimentos e lance pagamentos.</p>
 </div>
 
-<!-- Tabs (Hoje / Amanhã / Semana) -->
 <div class="tabs" id="vencTabs">
-  <button class="tab is-active" data-filter="hoje" type="button">Hoje</button>
-  <button class="tab" data-filter="amanha" type="button">Amanhã</button>
-  <button class="tab" data-filter="semana" type="button">Semana</button>
+  <button class="tab is-active" data-filter="por_data" type="button">Hoje</button>
+  <button class="tab" data-filter="hoje" type="button">Diários</button>
+  <button class="tab" data-filter="semana" type="button">Semanais</button>
+  <button class="tab" data-filter="amanha" type="button">Mensais</button>
+  <button class="tab" data-filter="atrasados" type="button" style="color: #d93025; font-weight: bold;">Atrasados</button>
 </div>
 
-<!-- 🔎 Busca (igual tela de clientes) -->
 <div class="searchbar">
   <span class="searchbar__icon">🔎</span>
   <input
@@ -39,25 +40,12 @@ require __DIR__ . '/layouts/header.php';
   />
 </div>
 
-<!-- Seção: Atrasados -->
-<div class="section-row" id="secAtrasados" style="display:none;">
-  <div class="section-row__left">
-    <span class="warn-icon">⛔</span>
-    <strong class="section-row__title" id="countAtrasados">Atrasados (0)</strong>
-  </div>
-</div>
-
-<!-- ✅ Aqui o JS vai renderizar os grupos por cliente (accordion) dos atrasados -->
-<section class="list venc-list" id="vencListAtrasados"></section>
-
-<!-- Seção: Lista principal (Hoje / Amanhã / Semana) -->
 <div class="section-row">
   <div class="section-row__left">
     <strong class="section-row__title" id="tituloPeriodo">Hoje (0)</strong>
   </div>
 </div>
 
-<!-- ✅ Aqui o JS vai renderizar os grupos por cliente (accordion) do período -->
 <section class="list venc-list" id="vencList"></section>
 
 <?php require __DIR__ . '/layouts/footer.php'; ?>

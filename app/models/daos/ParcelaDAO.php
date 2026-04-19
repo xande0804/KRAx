@@ -12,9 +12,6 @@ class ParcelaDAO
         $this->pdo = Database::conectar();
     }
 
-    /**
-     * Útil pra transações (edição/correção precisa ser atômica).
-     */
     public function getPdo(): PDO
     {
         return $this->pdo;
@@ -136,9 +133,6 @@ class ParcelaDAO
         ]);
     }
 
-    /**
-     * 🔥 VERSÃO DEFINITIVA — sem loop, sem float bug
-     */
     public function adicionarPagamentoNaParcela(int $parcelaId, float $valor): bool
     {
         if ($parcelaId <= 0 || $valor <= 0) return false;
@@ -193,12 +187,6 @@ class ParcelaDAO
         ]);
     }
 
-    /**
-     * ✅ Ajusta valor_pago com delta (pode ser + ou -) e recalcula status/pago_em.
-     * - Se ficar >= valor_parcela => PAGA e pago_em = NOW() (se ainda não tiver)
-     * - Se ficar entre (0 e valor_parcela) => PARCIAL e limpa pago_em
-     * - Se ficar 0 => ABERTA e limpa pago_em
-     */
     public function ajustarPagamentoNaParcela(int $parcelaId, float $delta): bool
     {
         if ($parcelaId <= 0) return false;
@@ -210,17 +198,14 @@ class ParcelaDAO
         $valorParcela = round((float)($row['valor_parcela'] ?? 0), 2);
         $valorAtual   = round((float)($row['valor_pago'] ?? 0), 2);
 
-        // novo valor com clamp
         $novo = round($valorAtual + $delta, 2);
         if ($novo < 0) $novo = 0.0;
         if ($valorParcela > 0 && $novo > $valorParcela) $novo = $valorParcela;
 
-        // define status
         if ($valorParcela > 0 && $novo + 0.00001 >= $valorParcela) {
             $novo = $valorParcela;
             $status = 'PAGA';
 
-            // mantém pago_em se já existia; senão seta agora
             $sql = "UPDATE parcelas
                     SET valor_pago = :vp,
                         status = :st,
@@ -229,7 +214,6 @@ class ParcelaDAO
         } elseif ($novo > 0) {
             $status = 'PARCIAL';
 
-            // ao voltar pra parcial, remove pago_em
             $sql = "UPDATE parcelas
                     SET valor_pago = :vp,
                         status = :st,
@@ -253,9 +237,6 @@ class ParcelaDAO
         ]);
     }
 
-    /**
-     * ✅ Atalho: remove valor de uma parcela (reverte pagamento).
-     */
     public function removerPagamentoDaParcela(int $parcelaId, float $valor): bool
     {
         if ($parcelaId <= 0 || $valor <= 0) return false;
@@ -270,6 +251,9 @@ class ParcelaDAO
         SELECT
             c.id AS cliente_id,
             c.nome AS cliente_nome,
+            c.cpf AS cliente_cpf,
+            c.telefone AS cliente_telefone,
+            c.grupo AS grupo,
             e.id AS emprestimo_id,
             p.id AS parcela_id,
             p.numero_parcela,
@@ -281,7 +265,7 @@ class ParcelaDAO
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
         INNER JOIN clientes c ON c.id = e.cliente_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND p.data_vencimento <= :data
         ORDER BY p.data_vencimento ASC
     ";
@@ -300,6 +284,9 @@ class ParcelaDAO
         SELECT
             c.id AS cliente_id,
             c.nome AS cliente_nome,
+            c.cpf AS cliente_cpf,
+            c.telefone AS cliente_telefone,
+            c.grupo AS grupo,
             e.id AS emprestimo_id,
             p.id AS parcela_id,
             p.numero_parcela,
@@ -311,7 +298,7 @@ class ParcelaDAO
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
         INNER JOIN clientes c ON c.id = e.cliente_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND p.data_vencimento BETWEEN :ini AND :fim
         ORDER BY p.data_vencimento ASC
     ";
@@ -325,13 +312,44 @@ class ParcelaDAO
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
+    public function listarVencimentosPorPeriodicidade(string $periodicidade): array
+    {
+        $sql = "
+        SELECT
+            c.id AS cliente_id,
+            c.nome AS cliente_nome,
+            c.cpf AS cliente_cpf,
+            c.telefone AS cliente_telefone,
+            c.grupo AS grupo,
+            e.id AS emprestimo_id,
+            p.id AS parcela_id,
+            p.numero_parcela,
+            p.data_vencimento,
+            e.valor_principal,
+            e.porcentagem_juros,
+            e.quantidade_parcelas,
+            e.tipo_vencimento
+        FROM parcelas p
+        INNER JOIN emprestimos e ON e.id = p.emprestimo_id
+        INNER JOIN clientes c ON c.id = e.cliente_id
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
+          AND e.tipo_vencimento = :tipo
+        ORDER BY p.data_vencimento ASC
+    ";
+
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([':tipo' => strtoupper($periodicidade)]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
     public function contarVencemHoje(): int
     {
         $sql = "
         SELECT COUNT(*) 
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND DATE(p.data_vencimento) = CURDATE()
           AND e.status <> 'QUITADO'
     ";
@@ -345,7 +363,7 @@ class ParcelaDAO
         SELECT COUNT(*) 
         FROM parcelas p
         INNER JOIN emprestimos e ON e.id = p.emprestimo_id
-        WHERE p.status = 'ABERTA'
+        WHERE p.status IN ('ABERTA', 'PARCIAL')
           AND DATE(p.data_vencimento) < CURDATE()
           AND e.status <> 'QUITADO'
     ";

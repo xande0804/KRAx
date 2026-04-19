@@ -1,37 +1,40 @@
 // public/assets/js/pages/vencimentos.js
 (function () {
   const tabs = document.getElementById("vencTabs");
-
-  const secAtrasados = document.getElementById("secAtrasados");
-  const countAtrasadosEl = document.getElementById("countAtrasados");
-  const listAtrasadosEl = document.getElementById("vencListAtrasados");
-
   const tituloPeriodoEl = document.getElementById("tituloPeriodo");
   const listEl = document.getElementById("vencList");
 
-  const searchInput = document.getElementById("vencSearch"); // ✅ searchbar
+  const searchInput = document.getElementById("vencSearch");
+  const grupoFilter =
+    document.getElementById("vencGrupoFilter") ||
+    document.getElementById("vencimentosGrupoFilter");
 
   if (!tabs || !listEl) return;
 
   const buttons = Array.from(tabs.querySelectorAll(".tab"));
   const API = "/KRAx/public/api.php";
 
-  let currentPeriod = "hoje";
+  let currentPeriod = "por_data";
   window.refreshVencimentos = () => load(currentPeriod);
 
-  // ======== state ========
   let cache = {
-    period: "hoje",
+    period: "por_data",
     periodo_label: "Hoje",
-    atrasados: [],
     lista: [],
   };
 
-  // ✅ tudo começa FECHADO (atrasados e período)
-  const expanded = {
-    atrasados: new Set(),
-    periodo: new Set(),
-  };
+  const expanded = {};
+
+  function isExpanded(section, key) {
+    if (!expanded[section]) expanded[section] = new Set();
+    return expanded[section].has(key);
+  }
+
+  function toggleExpanded(section, key) {
+    if (!expanded[section]) expanded[section] = new Set();
+    if (expanded[section].has(key)) expanded[section].delete(key);
+    else expanded[section].add(key);
+  }
 
   function money(v) {
     const num = Number(v);
@@ -70,12 +73,44 @@
     const st = String(status || "").toUpperCase();
     if (st === "ATRASADO") return `<span class="badge badge--danger">Atrasado</span>`;
     if (st === "HOJE") return `<span class="badge badge--info">Hoje</span>`;
-    if (st === "AMANHA") return `<span class="badge">Amanhã</span>`;
     return `<span class="badge">Pendente</span>`;
   }
 
+  function normalizarGrupo(grupo) {
+    const g = String(grupo ?? "PADRAO").trim().toUpperCase();
+    return g || "PADRAO";
+  }
+
+  function grupoEhNovo(grupo) {
+    return normalizarGrupo(grupo) === "MARIA";
+  }
+
+  function grupoEhAntigo(grupo) {
+    return !grupoEhNovo(grupo);
+  }
+
+  function badgeGrupoHtml(grupo) {
+    return grupoEhNovo(grupo)
+      ? `<span class="badge badge--maria">Novo</span>`
+      : ``;
+  }
+
+  function passaFiltroGrupo(grupo, filtroSelecionado) {
+    const filtro = String(filtroSelecionado ?? "todos").trim().toLowerCase();
+    const g = normalizarGrupo(grupo);
+
+    if (filtro === "novo") return grupoEhNovo(g);
+    if (filtro === "antigo") return grupoEhAntigo(g);
+
+    return true;
+  }
+
   function getPeriodoLabel(period) {
-    return period === "amanha" ? "Amanhã" : period === "semana" ? "Semana" : "Hoje";
+    if (period === "por_data") return "Hoje";
+    if (period === "amanha") return "Mensais";
+    if (period === "semana") return "Semanais";
+    if (period === "atrasados") return "Atrasados";
+    return "Diários";
   }
 
   function setTituloPeriodo(label, qtd) {
@@ -84,12 +119,7 @@
     tituloPeriodoEl.textContent = `${nome} (${qtd || 0})`;
   }
 
-  function setAtrasados(qtd) {
-    if (countAtrasadosEl) countAtrasadosEl.textContent = `Atrasados (${qtd || 0})`;
-    if (secAtrasados) secAtrasados.style.display = qtd > 0 ? "" : "none";
-  }
-
-  // ======== search helpers ========
+  // ======== BUSCA INTELIGENTE (SEM PONTUAÇÃO) ========
   function norm(s) {
     return String(s || "")
       .toLowerCase()
@@ -102,16 +132,48 @@
     const nome = row.cliente_nome || row.nome || "";
     const cpf = row.cliente_cpf || row.cpf || row.documento || "";
     const tel = row.cliente_telefone || row.telefone || row.fone || "";
-    return norm([nome, cpf, tel].filter(Boolean).join(" "));
+    const grupo = row.grupo || "";
+
+    // Versões limpas (só números) do CPF e Telefone
+    const cpfLimpo = cpf.replace(/\D/g, "");
+    const telLimpo = tel.replace(/\D/g, "");
+
+    // Junta tudo (com e sem pontuação) num "linguição" gigante para o buscador
+    return norm([nome, cpf, tel, cpfLimpo, telLimpo, grupo].filter(Boolean).join(" "));
   }
 
   function applyFilter(rows, q) {
-    const query = norm(q);
-    if (!query) return rows;
-    return (Array.isArray(rows) ? rows : []).filter((r) => rowSearchText(r).includes(query));
-  }
+    const rawQ = String(q || "");
+    const qNorm = norm(rawQ);
+    const qNumeros = rawQ.replace(/\D/g, ""); // Pega só os números do que o usuário digitou
+    const termos = qNorm.split(/\s+/).filter(Boolean); // Divide a busca por espaços (ex: "Kaua 61")
 
-  // ======== grouping ========
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
+
+    return (Array.isArray(rows) ? rows : []).filter((r) => {
+      const textoBusca = rowSearchText(r);
+
+      let matchTexto = true;
+      
+      // Se o usuário digitou algo na busca
+      if (termos.length > 0) {
+        // Verifica se a sequência de números exata existe (ex: 6185101778)
+        const bateNumeros = qNumeros && textoBusca.includes(qNumeros);
+        
+        // Verifica se todas as palavras digitadas existem na linha (ex: "Kaua" e "61")
+        const bateTermos = termos.every(t => textoBusca.includes(t));
+
+        if (!bateNumeros && !bateTermos) {
+          matchTexto = false;
+        }
+      }
+
+      const matchGrupo = passaFiltroGrupo(r.grupo, grupoSelecionado);
+      return matchTexto && matchGrupo;
+    });
+  }
+  // ===================================================
+
   function clienteKey(row) {
     const id = row.cliente_id ?? row.id_cliente ?? "";
     const nome = row.cliente_nome ?? row.nome ?? "";
@@ -127,6 +189,7 @@
           key,
           cliente_id: row.cliente_id ?? row.id_cliente ?? null,
           cliente_nome: row.cliente_nome ?? row.nome ?? "—",
+          grupo: normalizarGrupo(row.grupo),
           rows: [],
         });
       }
@@ -138,35 +201,18 @@
     });
   }
 
-  function isExpanded(section, key) {
-    return expanded[section].has(key);
-  }
-
-  function toggleExpanded(section, key) {
-    if (expanded[section].has(key)) expanded[section].delete(key);
-    else expanded[section].add(key);
-  }
-
-  // ======== render ========
-  function renderGrouped(targetEl, rows, { section, emptyMode = "show" } = {}) {
-    if (!targetEl) return;
-
-    if (!Array.isArray(rows) || rows.length === 0) {
-      targetEl.innerHTML =
-        emptyMode === "hide"
-          ? ``
-          : `<div class="muted" style="padding:12px;">Nenhum vencimento.</div>`;
-      return;
-    }
+  function buildGroupedHtml(rows, section) {
+    if (!Array.isArray(rows) || rows.length === 0) return "";
 
     const groups = groupByCliente(rows);
 
-    targetEl.innerHTML = groups
+    return groups
       .map((g) => {
         const keyRaw = String(g.key);
         const keyAttr = esc(keyRaw);
         const nome = esc(g.cliente_nome || "—");
         const qtd = g.rows.length;
+        const grupo = normalizarGrupo(g.grupo);
 
         const open = isExpanded(section, keyRaw);
         const arrow = open ? "▾" : "▸";
@@ -185,16 +231,18 @@
 
             const status = String(row.status || "").toUpperCase();
             const isAtrasado = status === "ATRASADO";
+            const grupoRow = normalizarGrupo(row.grupo);
 
             const emprestimoInfo = `Prestação ${parcelaNum} • ${valorTxt} • Venc: ${venc}`;
 
             return `
-              <article class="list-item venc-item" data-status="${isAtrasado ? "atrasado" : "pendente"}">
+              <article class="list-item venc-item" data-status="${isAtrasado ? "atrasado" : "pendente"}" data-grupo="${esc(grupoRow)}">
                 <div class="venc-left">
                   <div class="venc-title">
                     ${isAtrasado ? `<span class="warn-dot">!</span>` : ``}
                     <strong>${nome}</strong>
                     ${badgeHtml(status)}
+                    ${badgeGrupoHtml(grupoRow)}
                   </div>
 
                   <div class="venc-meta">
@@ -226,7 +274,7 @@
           .join("");
 
         return `
-          <div class="venc-group" data-venc-key="${keyAttr}" data-venc-section="${esc(section)}">
+          <div class="venc-group" data-venc-key="${keyAttr}" data-venc-section="${esc(section)}" data-grupo="${esc(grupo)}">
             <button
               class="venc-group__head"
               type="button"
@@ -235,9 +283,12 @@
               data-venc-section="${esc(section)}"
               aria-expanded="${open ? "true" : "false"}"
             >
-            <span class="venc-group__count">(${qtd})</span>
-            <span class="venc-group__name"><strong>${nome}</strong></span>
-            <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
+              <span class="venc-group__count">(${qtd})</span>
+              <span class="venc-group__name">
+                <strong>${nome}</strong>
+                ${badgeGrupoHtml(grupo)}
+              </span>
+              <span class="venc-group__arrow" aria-hidden="true">${arrow}</span>
             </button>
 
             <div class="venc-group__body" style="display:${open ? "" : "none"};">
@@ -249,7 +300,46 @@
       .join("");
   }
 
-  // ======== accordion click (delegation) ========
+  function buildMasterAccordion(title, list, keySection, theme = "normal") {
+    if (!list || list.length === 0) return "";
+
+    const open = isExpanded("master_accordion", keySection);
+    const arrow = open ? "▾" : "▸";
+    const qtd = list.length;
+
+    const innerHtml = buildGroupedHtml(list, "inner_" + keySection);
+    
+    const bgCor = theme === "danger" ? "#fef2f2" : "#f8fafc"; 
+    const txtCor = theme === "danger" ? "#dc2626" : "#334155";
+    const borderCor = theme === "danger" ? "#fca5a5" : "#e2e8f0";
+    const iconHtml = theme === "danger" ? `<span class="warn-icon" style="margin-right: 8px; font-size: 1.1em;">⛔</span>` : ``;
+
+    return `
+      <div class="venc-group" data-venc-key="${keySection}" data-venc-section="master_accordion" style="margin-bottom: 16px; border: 1px solid ${borderCor}; border-radius: 8px; overflow: hidden; background-color: #fff;">
+        <button
+          class="venc-group__head"
+          type="button"
+          data-venc-toggle="1"
+          data-venc-section="master_accordion"
+          data-venc-key="${keySection}"
+          aria-expanded="${open ? "true" : "false"}"
+          style="background-color: ${bgCor}; color: ${txtCor}; border: none; padding: 14px 20px; display: flex; align-items: center; border-bottom: ${open ? `1px solid ${borderCor}` : 'none'}; border-radius: 0;"
+        >
+          <span class="venc-group__name" style="flex-grow: 1; font-size: 1.05em; font-weight: bold; letter-spacing: 0.3px;">
+            ${iconHtml}
+            ${title}
+          </span>
+          <span class="venc-group__count" style="margin-right: 12px; font-weight: bold; background: rgba(0,0,0,0.06); padding: 2px 10px; border-radius: 12px; font-size: 0.9em;">${qtd}</span>
+          <span class="venc-group__arrow" aria-hidden="true" style="font-size: 1.2em;">${arrow}</span>
+        </button>
+
+        <div class="venc-group__body" style="display:${open ? "block" : "none"}; padding: 16px 12px 16px 24px;">
+          ${innerHtml}
+        </div>
+      </div>
+    `;
+  }
+
   function wireAccordionClicks(container) {
     if (!container) return;
 
@@ -265,109 +355,133 @@
 
       if (!key) return;
 
-      // toggle state
       toggleExpanded(section, key);
 
       const open = isExpanded(section, key);
 
       const body = group.querySelector(".venc-group__body");
       const arrow = group.querySelector(".venc-group__arrow");
-
-      if (body) body.style.display = open ? "" : "none";
+      
+      if (body) body.style.display = open ? "block" : "none";
       if (arrow) arrow.textContent = open ? "▾" : "▸";
       btn.setAttribute("aria-expanded", open ? "true" : "false");
+      
+      if (section === "master_accordion") {
+        const isDanger = btn.style.backgroundColor.includes("fef2f2") || btn.style.backgroundColor.includes("rgb(254, 242, 242)");
+        const borderCor = isDanger ? "#fca5a5" : "#e2e8f0";
+        btn.style.borderBottom = open ? `1px solid ${borderCor}` : 'none';
+      }
     });
   }
 
-  wireAccordionClicks(listAtrasadosEl);
   wireAccordionClicks(listEl);
 
-  // ======== fetch/load ========
   async function fetchVencimentos(period) {
     const map = {
+      por_data: "vencimentos/por_data",
       hoje: "vencimentos/hoje",
-      amanha: "vencimentos/amanha",
       semana: "vencimentos/semana",
+      amanha: "vencimentos/amanha",
+      atrasados: "vencimentos/atrasados",
     };
 
-    const route = map[period] || map.hoje;
+    const route = map[period] || map.por_data;
+    const url = `${API}?route=${route}`;
 
-    const res = await fetch(`${API}?route=${route}`);
+    const res = await fetch(url);
     const json = await res.json();
 
     if (!json.ok) throw new Error(json.mensagem || "Erro ao buscar vencimentos");
 
-    return json.dados || { atrasados: [], lista: [], periodo_label: "" };
+    return json.dados || { lista: [], atrasados: [], periodo_label: "" };
   }
 
   function rerenderWithSearch() {
     const q = searchInput ? searchInput.value : "";
-
-    const atrasadosFiltrados = applyFilter(cache.atrasados, q);
     const listaFiltrada = applyFilter(cache.lista, q);
 
-    setAtrasados(atrasadosFiltrados.length);
-    setTituloPeriodo(cache.periodo_label || getPeriodoLabel(cache.period), listaFiltrada.length);
+    const titleLabel = cache.period === "por_data" ? "Hoje" : (cache.periodo_label || getPeriodoLabel(cache.period));
+    setTituloPeriodo(titleLabel, listaFiltrada.length);
 
-    if (listAtrasadosEl) {
-      renderGrouped(listAtrasadosEl, atrasadosFiltrados, {
-        section: "atrasados",
-        emptyMode: "hide",
-      });
+    if (cache.period === "atrasados" || cache.period === "por_data") {
+      const diarios = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "DIARIO");
+      const semanais = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "SEMANAL");
+      const mensais = listaFiltrada.filter((r) => String(r.tipo_vencimento).toUpperCase() === "MENSAL");
+
+      let html = "";
+
+      if (cache.period === "atrasados") {
+        html += buildMasterAccordion("Atrasados Diários", diarios, "atrasados_diario", "danger");
+        html += buildMasterAccordion("Atrasados Semanais", semanais, "atrasados_semanal", "danger");
+        html += buildMasterAccordion("Atrasados Mensais", mensais, "atrasados_mensal", "danger");
+      } else {
+        html += buildMasterAccordion("Vencimentos Diários", diarios, "hoje_diario", "normal");
+        html += buildMasterAccordion("Vencimentos Semanais", semanais, "hoje_semanal", "normal");
+        html += buildMasterAccordion("Vencimentos Mensais", mensais, "hoje_mensal", "normal");
+      }
+
+      if (!html) {
+        html = `<div class="muted" style="padding:12px;">Nenhum vencimento encontrado.</div>`;
+      }
+
+      listEl.innerHTML = html;
+    } else {
+      const htmlNormal = buildGroupedHtml(listaFiltrada, "periodo");
+      listEl.innerHTML = htmlNormal || `<div class="muted" style="padding:12px;">Nenhum vencimento encontrado.</div>`;
     }
-
-    renderGrouped(listEl, listaFiltrada, { section: "periodo" });
   }
 
   async function load(period) {
     const fallbackLabel = getPeriodoLabel(period);
 
-    if (listAtrasadosEl) listAtrasadosEl.innerHTML = `<div class="muted" style="padding:12px;">Carregando...</div>`;
     listEl.innerHTML = `<div class="muted" style="padding:12px;">Carregando...</div>`;
-
-    setAtrasados(0);
     setTituloPeriodo(fallbackLabel, 0);
 
     try {
       const dados = await fetchVencimentos(period);
 
+      const atrasados = Array.isArray(dados.atrasados) ? dados.atrasados : [];
+      const normais = Array.isArray(dados.lista) ? dados.lista : [];
+
       cache = {
         period,
         periodo_label: String(dados.periodo_label || "").trim() || fallbackLabel,
-        atrasados: Array.isArray(dados.atrasados) ? dados.atrasados : [],
-        lista: Array.isArray(dados.lista) ? dados.lista : [],
+        lista: [...atrasados, ...normais],
       };
 
       rerenderWithSearch();
     } catch (e) {
       console.error(e);
 
-      cache = { period, periodo_label: fallbackLabel, atrasados: [], lista: [] };
+      cache = { period, periodo_label: fallbackLabel, lista: [] };
 
-      setAtrasados(0);
-      if (listAtrasadosEl) listAtrasadosEl.innerHTML = "";
       listEl.innerHTML = `<div class="muted" style="padding:12px;">Erro: ${esc(e.message)}</div>`;
       setTituloPeriodo(fallbackLabel, 0);
     }
   }
 
-  // ======== tabs ========
+  // --- CONTROLE DE ABAS ---
   buttons.forEach((btn) => {
     btn.addEventListener("click", () => {
       buttons.forEach((b) => b.classList.remove("is-active"));
       btn.classList.add("is-active");
 
-      currentPeriod = btn.getAttribute("data-filter") || "hoje";
+      currentPeriod = btn.getAttribute("data-filter") || "por_data";
       load(currentPeriod);
     });
   });
 
-  // ======== search ========
   if (searchInput) {
     let t = null;
     searchInput.addEventListener("input", () => {
       if (t) clearTimeout(t);
       t = setTimeout(() => rerenderWithSearch(), 120);
+    });
+  }
+
+  if (grupoFilter) {
+    grupoFilter.addEventListener("change", () => {
+      rerenderWithSearch();
     });
   }
 

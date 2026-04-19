@@ -1,5 +1,6 @@
 <?php
 $pageJs = $pageJs ?? [];
+$pageVendorJs = $pageVendorJs ?? [];
 ?>
 </main>
 
@@ -16,9 +17,13 @@ $pageJs = $pageJs ?? [];
 <script src="/KRAx/public/assets/js/modals/editarCliente.modal.js"></script>
 <script src="/KRAx/public/assets/js/modals/lancarPagamento.modal.js"></script>
 <script src="/KRAx/public/assets/js/modals/editarEmprestimo.modal.js"></script>
-
 <script src="/KRAx/public/assets/js/modals/detalhesEmprestimo.modal.js"></script>
 <script src="/KRAx/public/assets/js/modals/index.js"></script>
+
+<!-- JS externos específicos da página -->
+<?php foreach ($pageVendorJs as $src): ?>
+  <script src="<?= htmlspecialchars($src, ENT_QUOTES, 'UTF-8') ?>"></script>
+<?php endforeach; ?>
 
 <!-- JS específicos da página -->
 <?php foreach ($pageJs as $js): ?>

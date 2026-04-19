@@ -8,6 +8,7 @@ class EmprestimoDTO
     public float $porcentagem_juros;
     public int $quantidade_parcelas;
     public string $tipo_vencimento;    // DIARIO | SEMANAL | MENSAL
+    public string $grupo;              // PADRAO | MARIA
 
     // ✅ agora pode ser:
     // - DIARIO/MENSAL: "YYYY-MM-DD" (primeiro vencimento)
@@ -22,6 +23,7 @@ class EmprestimoDTO
         $this->porcentagem_juros   = (float)($dados['porcentagem_juros'] ?? 0);
         $this->quantidade_parcelas = (int)($dados['quantidade_parcelas'] ?? 0);
         $this->tipo_vencimento     = strtoupper(trim((string)($dados['tipo_vencimento'] ?? '')));
+        $this->grupo               = $this->normalizarGrupo($dados['grupo'] ?? null);
 
         $rv = isset($dados['regra_vencimento']) ? trim((string)$dados['regra_vencimento']) : '';
         $this->regra_vencimento = ($rv !== '') ? $rv : null;
@@ -54,10 +56,11 @@ class EmprestimoDTO
             throw new InvalidArgumentException('tipo_vencimento inválido.');
         }
 
-        // ✅ Regras novas
+        if (!in_array($this->grupo, ['PADRAO', 'MARIA'], true)) {
+            throw new InvalidArgumentException('grupo inválido.');
+        }
 
         if ($this->tipo_vencimento === 'SEMANAL') {
-            // obrigatório: 1..6 (Seg..Sáb). Não tem domingo.
             if ($this->regra_vencimento === null) {
                 throw new InvalidArgumentException('regra_vencimento é obrigatória para vencimento semanal.');
             }
@@ -73,12 +76,22 @@ class EmprestimoDTO
         }
 
         if ($this->tipo_vencimento === 'DIARIO' || $this->tipo_vencimento === 'MENSAL') {
-            // obrigatório: data do primeiro vencimento (YYYY-MM-DD)
             if ($this->regra_vencimento === null) {
                 throw new InvalidArgumentException('regra_vencimento é obrigatória (primeiro vencimento) para DIÁRIO/MENSAL.');
             }
             $this->assertDate($this->regra_vencimento, 'regra_vencimento');
         }
+    }
+
+    private function normalizarGrupo($grupo): string
+    {
+        $g = strtoupper(trim((string)$grupo));
+
+        if ($g === '') {
+            return 'PADRAO';
+        }
+
+        return $g;
     }
 
     private function assertDate(string $date, string $fieldName): void

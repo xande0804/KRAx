@@ -1,7 +1,9 @@
+// public/assets/js/pages/clientes.js
 (function () {
   const list = document.getElementById("clientesList");
   const countEl = document.getElementById("clientesCount");
   const input = document.getElementById("clientesSearch");
+  const grupoFilter = document.getElementById("clientesGrupoFilter");
   if (!list) return;
 
   const API = "/KRAx/public/api.php";
@@ -21,26 +23,18 @@
     return String(v ?? "").replace(/\D+/g, "");
   }
 
-  // ✅ Validação + normalização BR p/ wa.me
-  // Aceita:
-  // - 10 ou 11 dígitos (DDD + número) -> vira 55 + digits
-  // - 12 ou 13 dígitos começando com 55 -> mantém
-  // Caso contrário: inválido
   function toWaNumberOrEmpty(phoneRaw) {
     const d = onlyDigits(phoneRaw);
     if (!d) return "";
 
-    // já com DDI BR
     if (d.startsWith("55") && (d.length === 12 || d.length === 13)) return d;
 
-    // sem DDI, padrão BR
     if (d.length === 10 || d.length === 11) return "55" + d;
 
-    return ""; // inválido
+    return "";
   }
 
   function wppSvg() {
-    // SVG "oficial" (marca WhatsApp) em formato ícone circular
     return `
       <svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
         <path class="wpp-bg" d="M16 2.667C8.636 2.667 2.667 8.636 2.667 16c0 2.343.607 4.634 1.759 6.661L3.2 29.333l6.829-1.2A13.28 13.28 0 0 0 16 29.333c7.364 0 13.333-5.969 13.333-13.333C29.333 8.636 23.364 2.667 16 2.667z"/>
@@ -50,12 +44,44 @@
   }
 
   function lockSvg() {
-    // Cadeado simples (inline) p/ indicar bloqueado
     return `
       <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
         <path d="M12 1a5 5 0 00-5 5v3H6a2 2 0 00-2 2v9a2 2 0 002 2h12a2 2 0 002-2v-9a2 2 0 00-2-2h-1V6a5 5 0 00-5-5zm-3 8V6a3 3 0 116 0v3H9zm3 4a2 2 0 012 2 2 2 0 01-1 1.732V19a1 1 0 11-2 0v-2.268A2 2 0 0110 15a2 2 0 012-2z"/>
       </svg>
     `;
+  }
+
+  function normalizarGrupo(grupo) {
+    const g = String(grupo ?? "PADRAO").trim().toUpperCase();
+    return g || "PADRAO";
+  }
+
+  function badgeGrupoHtml(grupo) {
+    const g = normalizarGrupo(grupo);
+
+    if (g === "MARIA") {
+      return `<span class="badge badge--maria" title="Cliente do grupo Maria">Novo</span>`;
+    }
+
+    return "";
+  }
+
+  function grupoEhNovo(grupo) {
+    return normalizarGrupo(grupo) === "MARIA";
+  }
+
+  function grupoEhAntigo(grupo) {
+    return !grupoEhNovo(grupo);
+  }
+
+  function passaFiltroGrupo(grupo, filtroSelecionado) {
+    const filtro = String(filtroSelecionado ?? "todos").trim().toLowerCase();
+    const g = normalizarGrupo(grupo);
+
+    if (filtro === "novo") return grupoEhNovo(g);
+    if (filtro === "antigo") return grupoEhAntigo(g);
+
+    return true;
   }
 
   function render(clientes) {
@@ -66,15 +92,27 @@
       const telefoneRaw = c.telefone || "";
       const telefone = escapeHtml(telefoneRaw || "—");
       const cpf = escapeHtml(c.cpf || "");
+      const grupo = normalizarGrupo(c.grupo);
 
       const wa = toWaNumberOrEmpty(telefoneRaw);
       const waLink = wa ? `https://wa.me/${wa}` : "";
 
+      // ADDED: Pegamos a versão limpa do CPF e Telefone (só números) para guardar no filtro invisível
+      const cpfLimpo = cpf.replace(/\D/g, "");
+      const telLimpo = telefoneRaw.replace(/\D/g, "");
+
       const article = document.createElement("article");
       article.className = "list-item";
-      article.setAttribute("data-filter", `${nome} ${telefone} ${cpf}`.toLowerCase());
+      
+      // Juntamos tudo no filtro invisível
+      const filterStr = `${nome} ${telefone} ${cpf} ${cpfLimpo} ${telLimpo} ${grupo}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
 
-      // ✅ WhatsApp ou bloqueado (cadeado)
+      article.setAttribute("data-filter", filterStr);
+      article.setAttribute("data-grupo", grupo);
+
       const wppBtn = waLink
         ? `
           <a
@@ -106,6 +144,7 @@
               ? `<span class="badge badge--active">Empréstimo ativo</span>`
               : `<span class="badge">Sem empréstimo</span>`
             }
+            ${badgeGrupoHtml(grupo)}
           </div>
           <div class="list-item__sub">${telefone}</div>
         </div>
@@ -117,7 +156,14 @@
             👁️ Detalhes
           </button>
 
-          <button class="linkbtn" type="button" data-modal-open="novoEmprestimo" data-cliente-id="${c.id}" data-cliente-nome="${nome}">
+          <button
+            class="linkbtn"
+            type="button"
+            data-modal-open="novoEmprestimo"
+            data-cliente-id="${c.id}"
+            data-cliente-nome="${nome}"
+            data-cliente-grupo="${grupo}"
+          >
             💸 Empréstimo
           </button>
         </div>
@@ -144,13 +190,37 @@
   }
 
   function filtrar() {
-    if (!input) return;
-    const q = input.value.trim().toLowerCase();
+    const rawQ = input ? input.value : "";
+    
+    // Normaliza (tira acentos e deixa minúsculo)
+    const qNorm = rawQ.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    // Pega só os números
+    const qNumeros = rawQ.replace(/\D/g, "");
+    // Separa a busca por espaços
+    const termos = qNorm.split(/\s+/).filter(Boolean);
+
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
     let visible = 0;
 
     items.forEach((item) => {
       const hay = item.getAttribute("data-filter") || "";
-      const show = hay.includes(q);
+      const grupo = item.getAttribute("data-grupo") || "";
+
+      let matchTexto = true;
+      
+      if (termos.length > 0) {
+        // Checa se bate exato com os números digitados ou com todas as palavras
+        const bateNumeros = qNumeros && hay.includes(qNumeros);
+        const bateTermos = termos.every(t => hay.includes(t));
+        
+        if (!bateNumeros && !bateTermos) {
+          matchTexto = false;
+        }
+      }
+
+      const matchGrupo = passaFiltroGrupo(grupo, grupoSelecionado);
+      const show = matchTexto && matchGrupo;
+
       item.style.display = show ? "" : "none";
       if (show) visible++;
     });
@@ -159,11 +229,15 @@
   }
 
   if (input) input.addEventListener("input", filtrar);
+  if (grupoFilter) grupoFilter.addEventListener("change", filtrar);
 
   window.refreshClientesList = function refreshClientesList() {
     const q = input ? input.value : "";
+    const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
+
     carregar().finally(() => {
       if (input) input.value = q;
+      if (grupoFilter) grupoFilter.value = grupoSelecionado;
       filtrar();
     });
   };

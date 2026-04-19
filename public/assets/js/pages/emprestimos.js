@@ -1,7 +1,7 @@
-// public/assets/js/pages/emprestimos.js
 (function () {
   const tabsContainer = document.getElementById("emprestimosTabs");
   const listEl = document.getElementById("emprestimosList");
+  const grupoFilter = document.getElementById("emprestimosGrupoFilter");
   if (!tabsContainer || !listEl) return;
 
   const tabs = Array.from(tabsContainer.querySelectorAll(".tab"));
@@ -13,6 +13,7 @@
   const tabQuitado = document.getElementById("tabQuitado");
 
   let currentFilter = "all";
+  let currentGrupoFilter = grupoFilter ? (grupoFilter.value || "todos") : "todos";
   let lastFullList = [];
 
   function money(v) {
@@ -54,6 +55,37 @@
     return `<span class="badge badge--info">Ativo</span>`;
   }
 
+  function normalizarGrupo(grupo) {
+    const g = String(grupo ?? "PADRAO").trim().toUpperCase();
+    return g || "PADRAO";
+  }
+
+  function grupoBadgeHtml(grupo) {
+    const g = normalizarGrupo(grupo);
+    if (g === "MARIA") {
+      return `<span class="badge badge--maria">Novo</span>`;
+    }
+    return "";
+  }
+
+  function grupoEhNovo(grupo) {
+    return normalizarGrupo(grupo) === "MARIA";
+  }
+
+  function grupoEhAntigo(grupo) {
+    return !grupoEhNovo(grupo);
+  }
+
+  function passaFiltroGrupo(grupo, filtroSelecionado) {
+    const filtro = String(filtroSelecionado ?? "todos").trim().toLowerCase();
+    const g = normalizarGrupo(grupo);
+
+    if (filtro === "novo") return grupoEhNovo(g);
+    if (filtro === "antigo") return grupoEhAntigo(g);
+
+    return true;
+  }
+
   function getStatusTela(row) {
     if (String(row?.status || "").toUpperCase() === "QUITADO") return "QUITADO";
     if (isAtrasado(row)) return "ATRASADO";
@@ -77,6 +109,7 @@
 
       const parcelasTxt = row.parcelas || "—";
       const proxVenc = formatDateBR(row.proximo_vencimento);
+      const grupo = normalizarGrupo(row.grupo);
 
       const pagamentoBtn = !isQuitado
         ? `
@@ -94,11 +127,12 @@
         : "";
 
       return `
-<article class="list-item" data-status="${statusData}">
+<article class="list-item" data-status="${statusData}" data-grupo="${grupo}">
   <div class="list-item__main">
     <div class="list-item__title">
       <strong>${row.cliente_nome ?? "—"}</strong>
       ${badgeHtml(statusTela)}
+      ${grupoBadgeHtml(grupo)}
     </div>
     <div class="list-item__meta">
       <span>${money(row.valor_principal)}</span>
@@ -119,15 +153,16 @@
       `;
     }).join("");
 
-    // 🔥 TROCA UMA ÚNICA VEZ
     listEl.innerHTML = html;
   }
 
   function updateCounts(allList) {
-    const total = allList.length;
-    const quitados = allList.filter(x => getStatusTela(x) === "QUITADO").length;
-    const atrasados = allList.filter(x => getStatusTela(x) === "ATRASADO").length;
-    const ativos = allList.filter(x => getStatusTela(x) === "ATIVO").length;
+    const listaGrupo = allList.filter((x) => passaFiltroGrupo(x.grupo, currentGrupoFilter));
+
+    const total = listaGrupo.length;
+    const quitados = listaGrupo.filter((x) => getStatusTela(x) === "QUITADO").length;
+    const atrasados = listaGrupo.filter((x) => getStatusTela(x) === "ATRASADO").length;
+    const ativos = listaGrupo.filter((x) => getStatusTela(x) === "ATIVO").length;
 
     if (pageCountEl) pageCountEl.textContent = `${total} empréstimos cadastrados`;
     if (tabAll) tabAll.textContent = `Todos (${total})`;
@@ -143,25 +178,36 @@
     return json.dados || [];
   }
 
-  function applyFrontFilter(lista, filterKey) {
-    if (filterKey === "all") return lista;
-    return lista.filter(x => getStatusTela(x) === filterKey.toUpperCase());
+  function applyFrontFilter(lista, filterKey, grupoKey) {
+    let filtrada = Array.isArray(lista) ? [...lista] : [];
+
+    filtrada = filtrada.filter((x) => passaFiltroGrupo(x.grupo, grupoKey));
+
+    if (filterKey === "all") return filtrada;
+
+    return filtrada.filter((x) => getStatusTela(x) === filterKey.toUpperCase());
+  }
+
+  function aplicarFiltrosNaListaAtual() {
+    updateCounts(lastFullList);
+    const lista = applyFrontFilter(lastFullList, currentFilter, currentGrupoFilter);
+    renderList(lista);
   }
 
   async function load(filterKey) {
     try {
-      // 🔥 NÃO apaga a lista
       listEl.classList.add("is-loading");
 
       const all = await fetchList();
       lastFullList = all;
 
       updateCounts(all);
-      const lista = applyFrontFilter(all, filterKey);
+      const lista = applyFrontFilter(all, filterKey, currentGrupoFilter);
       renderList(lista);
 
     } catch (e) {
       console.error(e);
+      listEl.innerHTML = `<div class="muted" style="padding:12px;">Erro ao carregar empréstimos.</div>`;
     } finally {
       listEl.classList.remove("is-loading");
     }
@@ -179,9 +225,16 @@
       tabs.forEach((t) => t.classList.remove("is-active"));
       tab.classList.add("is-active");
 
-      load(filter);
+      aplicarFiltrosNaListaAtual();
     });
   });
+
+  if (grupoFilter) {
+    grupoFilter.addEventListener("change", () => {
+      currentGrupoFilter = grupoFilter.value || "todos";
+      aplicarFiltrosNaListaAtual();
+    });
+  }
 
   currentFilter = "all";
   load("all");

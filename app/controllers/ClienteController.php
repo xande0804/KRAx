@@ -23,15 +23,16 @@ class ClienteController
             $cliente->setProfissao($dto->profissao);
             $cliente->setPlacaCarro($dto->placa_carro);
             $cliente->setIndicacao($dto->indicacao);
+            $cliente->setGrupo($dto->grupo);
 
             $dao = new ClienteDAO();
             $id = $dao->criar($cliente);
 
-            // ✅ NOVO: processa documentos (se vierem)
             $docs = $this->salvarDocumentosUpload((int)$id, $_FILES['documentos'] ?? null);
 
             $this->responderJson(true, 'Cliente criado com sucesso', [
                 'id' => (int)$id,
+                'grupo' => $cliente->getGrupo(),
                 'documentos' => $docs
             ]);
         } catch (Exception $e) {
@@ -56,6 +57,7 @@ class ClienteController
                     'profissao' => $row['profissao'] ?? null,
                     'placa_carro' => $row['placa_carro'] ?? null,
                     'indicacao' => $row['indicacao'] ?? null,
+                    'grupo' => $row['grupo'] ?? 'PADRAO',
                     'tem_emprestimo_ativo' => (int)($row['tem_emprestimo_ativo'] ?? 0),
                 ];
             }
@@ -91,7 +93,7 @@ class ClienteController
                 'profissao' => $c->getProfissao(),
                 'placa_carro' => $c->getPlacaCarro(),
                 'indicacao' => $c->getIndicacao(),
-                // ✅ NOVO: lista documentos do cliente
+                'grupo' => $c->getGrupo(),
                 'documentos' => $this->listarDocumentos((int)$c->getId()),
             ];
 
@@ -125,15 +127,16 @@ class ClienteController
             $existente->setProfissao($dto->profissao);
             $existente->setPlacaCarro($dto->placa_carro);
             $existente->setIndicacao($dto->indicacao);
+            $existente->setGrupo($dto->grupo);
 
             $dao->atualizar($existente);
 
-            // ✅ NOVO: processa documentos (se vierem)
             $docsNovos = $this->salvarDocumentosUpload((int)$id, $_FILES['documentos'] ?? null);
             $docsTodos = $this->listarDocumentos((int)$id);
 
             $this->responderJson(true, 'Cliente atualizado com sucesso', [
                 'id' => (int)$existente->getId(),
+                'grupo' => $existente->getGrupo(),
                 'documentos_novos' => $docsNovos,
                 'documentos' => $docsTodos,
             ]);
@@ -160,7 +163,6 @@ class ClienteController
                 throw new RuntimeException('Cliente não encontrado.');
             }
 
-            // 🔥 REGRA DE NEGÓCIO
             $emprestimos = $empDAO->listarPorCliente($id);
 
             if ($emprestimos && count($emprestimos) > 0) {
@@ -171,31 +173,25 @@ class ClienteController
 
             $dao->excluir($id);
 
-            // opcional: apagar a pasta de uploads também
-            // $this->removerPastaUploadsCliente($id);
-
             $this->responderJson(true, 'Cliente excluído com sucesso');
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
     }
 
-    /* =========================================================
-       ✅ ENDPOINTS (rotas) para documentos
-       - clientes/documentos/listar  (GET)
-       - clientes/documentos/excluir (POST)
-    ========================================================= */
-
     public function documentosListar(): void
     {
         try {
             $clienteId = isset($_GET['cliente_id']) ? (int)$_GET['cliente_id'] : 0;
-            if ($clienteId <= 0) throw new InvalidArgumentException('cliente_id inválido.');
+            if ($clienteId <= 0) {
+                throw new InvalidArgumentException('cliente_id inválido.');
+            }
 
-            // valida se cliente existe
             $dao = new ClienteDAO();
             $c = $dao->buscarPorId($clienteId);
-            if (!$c) throw new RuntimeException('Cliente não encontrado.');
+            if (!$c) {
+                throw new RuntimeException('Cliente não encontrado.');
+            }
 
             $docs = $this->listarDocumentos($clienteId);
 
@@ -214,13 +210,18 @@ class ClienteController
             $clienteId = isset($_POST['cliente_id']) ? (int)$_POST['cliente_id'] : 0;
             $docId = isset($_POST['doc_id']) ? trim((string)$_POST['doc_id']) : '';
 
-            if ($clienteId <= 0) throw new InvalidArgumentException('cliente_id inválido.');
-            if ($docId === '') throw new InvalidArgumentException('doc_id inválido.');
+            if ($clienteId <= 0) {
+                throw new InvalidArgumentException('cliente_id inválido.');
+            }
+            if ($docId === '') {
+                throw new InvalidArgumentException('doc_id inválido.');
+            }
 
-            // valida se cliente existe
             $dao = new ClienteDAO();
             $c = $dao->buscarPorId($clienteId);
-            if (!$c) throw new RuntimeException('Cliente não encontrado.');
+            if (!$c) {
+                throw new RuntimeException('Cliente não encontrado.');
+            }
 
             $index = $this->loadIndex($clienteId);
             if (!$index) {
@@ -241,10 +242,11 @@ class ClienteController
                 throw new RuntimeException('Documento não encontrado.');
             }
 
-            // segurança: só apaga dentro da pasta do cliente
             $dirCliente = $this->uploadsBaseDir() . DIRECTORY_SEPARATOR . $clienteId;
             $arquivo = (string)($found['arquivo'] ?? '');
-            if ($arquivo === '') throw new RuntimeException('Arquivo inválido no índice.');
+            if ($arquivo === '') {
+                throw new RuntimeException('Arquivo inválido no índice.');
+            }
 
             $fullPath = $dirCliente . DIRECTORY_SEPARATOR . $arquivo;
             $realBase = realpath($dirCliente);
@@ -270,16 +272,11 @@ class ClienteController
         }
     }
 
-    /* =========================================================
-       ✅ DOCS: Upload + Index JSON (sem mexer no banco)
-    ========================================================= */
-
     private function uploadsBaseDir(): string
     {
-        // /KRAx/public/uploads/clientes
         $public = realpath(__DIR__ . '/../../public');
         if (!$public) {
-            throw new RuntimeException("Pasta /public não encontrada.");
+            throw new RuntimeException('Pasta /public não encontrada.');
         }
 
         return $public . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'clientes';
@@ -289,7 +286,7 @@ class ClienteController
     {
         if (!is_dir($dir)) {
             if (!mkdir($dir, 0775, true) && !is_dir($dir)) {
-                throw new RuntimeException("Não foi possível criar diretório de uploads.");
+                throw new RuntimeException('Não foi possível criar diretório de uploads.');
             }
         }
     }
@@ -302,7 +299,9 @@ class ClienteController
     private function loadIndex(int $clienteId): array
     {
         $idx = $this->indexPath($clienteId);
-        if (!file_exists($idx)) return [];
+        if (!file_exists($idx)) {
+            return [];
+        }
 
         $raw = file_get_contents($idx);
         $arr = json_decode($raw ?: '[]', true);
@@ -327,10 +326,10 @@ class ClienteController
 
     private function normalizeFilesArray($files): array
     {
-        // Transforma $_FILES['documentos'] em lista uniforme
-        if (!$files || !is_array($files)) return [];
+        if (!$files || !is_array($files)) {
+            return [];
+        }
 
-        // single
         if (!is_array($files['name'] ?? null)) {
             return [[
                 'name' => $files['name'] ?? '',
@@ -341,7 +340,6 @@ class ClienteController
             ]];
         }
 
-        // multiple
         $out = [];
         $count = count($files['name'] ?? []);
         for ($i = 0; $i < $count; $i++) {
@@ -353,17 +351,19 @@ class ClienteController
                 'size' => $files['size'][$i] ?? 0,
             ];
         }
+
         return $out;
     }
 
     private function listarDocumentos(int $clienteId): array
     {
         $base = $this->uploadsBaseDir() . DIRECTORY_SEPARATOR . $clienteId;
-        if (!is_dir($base)) return [];
+        if (!is_dir($base)) {
+            return [];
+        }
 
         $items = $this->loadIndex($clienteId);
 
-        // mais recentes primeiro (criado_em ISO)
         usort($items, function ($a, $b) {
             return strcmp((string)($b['criado_em'] ?? ''), (string)($a['criado_em'] ?? ''));
         });
@@ -374,9 +374,10 @@ class ClienteController
     private function salvarDocumentosUpload(int $clienteId, $files): array
     {
         $lista = $this->normalizeFilesArray($files);
-        if (!$lista) return [];
+        if (!$lista) {
+            return [];
+        }
 
-        // se não tem arquivo de verdade, sai
         $hasAny = false;
         foreach ($lista as $f) {
             if (($f['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
@@ -384,7 +385,9 @@ class ClienteController
                 break;
             }
         }
-        if (!$hasAny) return [];
+        if (!$hasAny) {
+            return [];
+        }
 
         $dirCliente = $this->uploadsBaseDir() . DIRECTORY_SEPARATOR . $clienteId;
         $this->ensureDir($dirCliente);
@@ -396,7 +399,9 @@ class ClienteController
 
         foreach ($lista as $f) {
             $err = (int)($f['error'] ?? UPLOAD_ERR_NO_FILE);
-            if ($err === UPLOAD_ERR_NO_FILE) continue;
+            if ($err === UPLOAD_ERR_NO_FILE) {
+                continue;
+            }
 
             if ($err !== UPLOAD_ERR_OK) {
                 throw new RuntimeException("Falha ao anexar arquivo ({$f['name']}), código {$err}.");
@@ -410,19 +415,19 @@ class ClienteController
             $origName = $this->sanitizeFilename((string)($f['name'] ?? 'arquivo'));
             $size = (int)($f['size'] ?? 0);
 
-            // limites (ajuste se quiser)
             if ($size <= 0) {
                 throw new RuntimeException("Arquivo vazio ({$origName}).");
             }
-            if ($size > 25 * 1024 * 1024) { // 25MB
+            if ($size > 25 * 1024 * 1024) {
                 throw new RuntimeException("Arquivo muito grande ({$origName}). Máximo 25MB.");
             }
 
             $ext = '';
             $pos = strrpos($origName, '.');
-            if ($pos !== false) $ext = strtolower(substr($origName, $pos));
+            if ($pos !== false) {
+                $ext = strtolower(substr($origName, $pos));
+            }
 
-            // mime "real"
             $mime = '';
             if ($finfo) {
                 $mime = (string)finfo_file($finfo, $tmp);
@@ -431,7 +436,6 @@ class ClienteController
                 $mime = (string)($f['type'] ?? 'application/octet-stream');
             }
 
-            // nome único
             $rand = bin2hex(random_bytes(6));
             $safeBase = preg_replace('/\.[^.]+$/', '', $origName);
             $safeBase = $this->sanitizeFilename($safeBase);
@@ -443,11 +447,10 @@ class ClienteController
                 throw new RuntimeException("Não foi possível salvar o arquivo ({$origName}).");
             }
 
-            // URL pública (como fica dentro de /public)
             $publicUrl = "/KRAx/public/uploads/clientes/{$clienteId}/" . rawurlencode($stored);
 
             $item = [
-                'id' => $rand, // id simples no index
+                'id' => $rand,
                 'nome_original' => $origName,
                 'arquivo' => $stored,
                 'mime' => $mime,
@@ -460,17 +463,20 @@ class ClienteController
             $novos[] = $item;
         }
 
-        if ($finfo) finfo_close($finfo);
+        if ($finfo) {
+            finfo_close($finfo);
+        }
 
         $this->saveIndex($clienteId, $index);
         return $novos;
     }
 
-    // (Opcional) se quiser apagar tudo ao excluir cliente
     private function removerPastaUploadsCliente(int $clienteId): void
     {
         $dir = $this->uploadsBaseDir() . DIRECTORY_SEPARATOR . $clienteId;
-        if (!is_dir($dir)) return;
+        if (!is_dir($dir)) {
+            return;
+        }
 
         $rii = new RecursiveIteratorIterator(
             new RecursiveDirectoryIterator($dir, RecursiveDirectoryIterator::SKIP_DOTS),
@@ -478,9 +484,13 @@ class ClienteController
         );
 
         foreach ($rii as $file) {
-            if ($file->isDir()) rmdir($file->getPathname());
-            else unlink($file->getPathname());
+            if ($file->isDir()) {
+                rmdir($file->getPathname());
+            } else {
+                unlink($file->getPathname());
+            }
         }
+
         rmdir($dir);
     }
 

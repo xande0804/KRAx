@@ -10,6 +10,7 @@ class Cliente
     private ?string $profissao = null;
     private ?string $placaCarro = null;
     private ?string $indicacao = null;
+    private string $grupo = 'PADRAO';
 
     // ===== GETTERS =====
 
@@ -53,6 +54,21 @@ class Cliente
         return $this->indicacao;
     }
 
+    public function getGrupo(): string
+    {
+        return $this->grupo;
+    }
+
+    public function isGrupoMaria(): bool
+    {
+        return $this->grupo === 'MARIA';
+    }
+
+    public function isGrupoPadrao(): bool
+    {
+        return $this->grupo === 'PADRAO';
+    }
+
     // ===== SETTERS =====
 
     public function setId(int $id): void
@@ -93,5 +109,22 @@ class Cliente
     public function setIndicacao(?string $indicacao): void
     {
         $this->indicacao = $indicacao ? trim($indicacao) : null;
+    }
+
+    public function setGrupo(?string $grupo): void
+    {
+        $grupo = strtoupper(trim((string)$grupo));
+
+        if ($grupo === '') {
+            $grupo = 'PADRAO';
+        }
+
+        $gruposValidos = ['PADRAO', 'MARIA'];
+
+        if (!in_array($grupo, $gruposValidos, true)) {
+            throw new InvalidArgumentException('Grupo de cliente inválido.');
+        }
+
+        $this->grupo = $grupo;
     }
 }

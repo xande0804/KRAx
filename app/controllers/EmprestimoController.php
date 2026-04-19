@@ -17,7 +17,6 @@ class EmprestimoController
             $dto = new EmprestimoDTO($_POST);
             $dto->validar();
 
-            // 1) Cria empréstimo
             $e = new Emprestimo();
             $e->setClienteId($dto->cliente_id);
             $e->setDataEmprestimo($dto->data_emprestimo);
@@ -26,11 +25,11 @@ class EmprestimoController
             $e->setQuantidadeParcelas($dto->quantidade_parcelas);
             $e->setTipoVencimento($dto->tipo_vencimento);
             $e->setRegraVencimento($dto->regra_vencimento);
+            $e->setGrupo($dto->grupo);
 
             $emprestimoDao = new EmprestimoDAO();
             $emprestimoId = $emprestimoDao->criar($e);
 
-            // 2) Gera parcelas
             $parcelaDao = new ParcelaDAO();
 
             $principal = (float)$dto->valor_principal;
@@ -53,17 +52,14 @@ class EmprestimoController
 
             $totalComJurosC = (int) round($totalComJuros * 100);
 
-            // parcela base (em centavos) + resto na última
             $baseC  = intdiv($totalComJurosC, $qtd);
             $restoC = $totalComJurosC - ($baseC * $qtd);
 
-            // cria parcelas
             for ($i = 1; $i <= $qtd; $i++) {
                 $p = new Parcela();
                 $p->setEmprestimoId($emprestimoId);
                 $p->setNumeroParcela($i);
 
-                // ✅ última parcela recebe o resto (ex: +1 centavo)
                 $valorParcelaC = ($i === $qtd) ? ($baseC + $restoC) : $baseC;
                 $valorParcela  = $valorParcelaC / 100;
 
@@ -83,7 +79,10 @@ class EmprestimoController
                 $parcelaDao->criar($p);
             }
 
-            $this->responderJson(true, 'Empréstimo criado com parcelas');
+            $this->responderJson(true, 'Empréstimo criado com parcelas', [
+                'emprestimo_id' => (int)$emprestimoId,
+                'grupo' => $e->getGrupo(),
+            ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
@@ -102,6 +101,12 @@ class EmprestimoController
             if ($jurosPctNovo < 0) throw new InvalidArgumentException("Juros (%) inválido.");
 
             $regraPost = isset($_POST['regra_vencimento']) ? trim((string)$_POST['regra_vencimento']) : '';
+            $grupoNovo = strtoupper(trim((string)($_POST['grupo'] ?? 'PADRAO')));
+            if ($grupoNovo === '') $grupoNovo = 'PADRAO';
+
+            if (!in_array($grupoNovo, ['PADRAO', 'MARIA'], true)) {
+                throw new InvalidArgumentException("Grupo inválido.");
+            }
 
             $empDAO = new EmprestimoDAO();
             $parDAO = new ParcelaDAO();
@@ -117,16 +122,13 @@ class EmprestimoController
             $tipoV   = strtoupper(trim((string)$emp->getTipoVencimento()));
             $dataEmp = (string)$emp->getDataEmprestimo();
 
-            $regraAtual = (string)($emp->getRegraVencimento() ?? '');
             if ($regraPost === '') {
                 throw new InvalidArgumentException("Informe a regra do vencimento para alterar.");
             }
             $regraNova = $this->validarRegraVencimentoParaTipo($tipoV, $regraPost, $dataEmp);
 
-            // ✅ pega parcelas atuais
             $parcelasExistentes = $parDAO->listarPorEmprestimo($id);
 
-            // separa pagas/parciais/abertas
             $pagas = [];
             $naoPagas = [];
 
@@ -143,14 +145,12 @@ class EmprestimoController
 
             $qtdPagas = count($pagas);
 
-            // ✅ não pode reduzir abaixo do que já foi pago
             if ($qtdNova < $qtdPagas) {
                 throw new InvalidArgumentException("Não dá pra reduzir para {$qtdNova} parcelas: já existem {$qtdPagas} parcelas pagas.");
             }
 
             $principal = (float)$emp->getValorPrincipal();
 
-            // ====== totals (pra alert do front) ======
             $qtdAntiga = (int)$emp->getQuantidadeParcelas();
             $jurosPctAntigo = (float)$emp->getPorcentagemJuros();
 
@@ -172,18 +172,11 @@ class EmprestimoController
             }
             $totalNovo = round($totalNovo, 2);
 
-            // ====== recalcular parcelas NÃO pagas ======
-            // ideia:
-            // - MENSAL: mantém "jurosUnit = principal * pct", e redistribui o principal restante nas restantes
-            // - DIARIO/SEMANAL: pega "saldo restante = totalNovo - totalPagoConsiderado" e divide pelas restantes
-
-            // total já abatido pelas parcelas pagas/parciais (limitado ao valor_parcela pra não virar “crédito escondido”)
             $totalPagoConsiderado = 0.0;
             foreach ($parcelasExistentes as $p) {
                 $vp = (float)($p['valor_pago'] ?? 0);
                 $vpar = (float)($p['valor_parcela'] ?? 0);
                 if ($vp <= 0) continue;
-                // considera até o valor da parcela (o excedente você trata em pagamento normal via EXTRA/adiantamento)
                 $totalPagoConsiderado += min($vp, $vpar > 0 ? $vpar : $vp);
             }
             $totalPagoConsiderado = round($totalPagoConsiderado, 2);
@@ -192,22 +185,22 @@ class EmprestimoController
             $pdo->beginTransaction();
 
             try {
-                // ✅ atualiza emprestimo SEMPRE (mesmo com movimento)
                 $stmtUp = $pdo->prepare("
                 UPDATE emprestimos
                 SET quantidade_parcelas = :qtd,
                     porcentagem_juros = :juros,
-                    regra_vencimento = :regra
+                    regra_vencimento = :regra,
+                    grupo = :grupo
                 WHERE id = :id
             ");
                 $stmtUp->execute([
                     ':qtd'   => $qtdNova,
                     ':juros' => $jurosPctNovo,
                     ':regra' => $regraNova,
-                    ':id'    => $id
+                    ':grupo' => $grupoNovo,
+                    ':id'     => $id
                 ]);
 
-                // ✅ busca parcelas novamente com ID/ordem
                 $stmtSel = $pdo->prepare("
                 SELECT id, numero_parcela, status, valor_pago, valor_parcela, data_vencimento
                 FROM parcelas
@@ -217,7 +210,6 @@ class EmprestimoController
                 $stmtSel->execute([':id' => $id]);
                 $rows = $stmtSel->fetchAll(PDO::FETCH_ASSOC);
 
-                // re-separa agora por “paga”
                 $rowsPagas = [];
                 $rowsNaoPagas = [];
 
@@ -235,8 +227,6 @@ class EmprestimoController
                 $qtdPagasNow = count($rowsPagas);
                 $qtdRestantes = $qtdNova - $qtdPagasNow;
 
-                // ✅ ajusta quantidade de linhas de parcelas futuras (criar/remover)
-                // se tem mais linhas do que precisa, remove as extras (somente NÃO pagas)
                 if (count($rowsNaoPagas) > $qtdRestantes) {
                     $excesso = array_slice($rowsNaoPagas, $qtdRestantes);
                     $stmtDel = $pdo->prepare("DELETE FROM parcelas WHERE id = :pid");
@@ -246,11 +236,9 @@ class EmprestimoController
                     $rowsNaoPagas = array_slice($rowsNaoPagas, 0, $qtdRestantes);
                 }
 
-                // se faltam linhas, cria novas parcelas abertas
                 if (count($rowsNaoPagas) < $qtdRestantes) {
                     $faltam = $qtdRestantes - count($rowsNaoPagas);
 
-                    // determina o próximo número de parcela
                     $maxNum = 0;
                     foreach ($rows as $r) {
                         $maxNum = max($maxNum, (int)$r['numero_parcela']);
@@ -267,7 +255,6 @@ class EmprestimoController
                         $num = $maxNum + $k;
                         $dv = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $num);
 
-                        // valor_parcela será atualizado logo abaixo no recálculo
                         $stmtIns->execute([
                             ':eid' => $id,
                             ':num' => $num,
@@ -276,7 +263,6 @@ class EmprestimoController
                         ]);
                     }
 
-                    // recarrega lista após inserts
                     $stmtSel->execute([':id' => $id]);
                     $rows = $stmtSel->fetchAll(PDO::FETCH_ASSOC);
 
@@ -291,11 +277,9 @@ class EmprestimoController
                         else $rowsNaoPagas[] = $row;
                     }
 
-                    // garante tamanho certo (ordem)
                     $rowsNaoPagas = array_slice($rowsNaoPagas, 0, $qtdRestantes);
                 }
 
-                // ✅ agora recalcula valores e vencimentos SOMENTE das não pagas
                 $stmtUpParc = $pdo->prepare("
                 UPDATE parcelas
                 SET numero_parcela = :num,
@@ -309,7 +293,6 @@ class EmprestimoController
                     if ($tipoV === 'MENSAL') {
                         $jurosUnit = $principal * ($jurosPctNovo / 100);
 
-                        // estima quanto principal já foi amortizado (parcelas pagas/parciais)
                         $principalAmortizado = 0.0;
 
                         foreach ($rowsPagas as $rp) {
@@ -317,12 +300,10 @@ class EmprestimoController
                             $vpar = (float)($rp['valor_parcela'] ?? 0);
                             $pago = min($vp, $vpar > 0 ? $vpar : $vp);
 
-                            // amortização = pago - jurosUnit (no mínimo 0)
                             $am = $pago - $jurosUnit;
                             if ($am > 0) $principalAmortizado += $am;
                         }
 
-                        // também considera parciais (que ficaram em rowsNaoPagas) pelo que já pagou
                         foreach ($rowsNaoPagas as $rn) {
                             $vp = (float)($rn['valor_pago'] ?? 0);
                             if ($vp <= 0) continue;
@@ -332,9 +313,6 @@ class EmprestimoController
 
                         $principalRestante = max(0, $principal - $principalAmortizado);
 
-                        $amortUnit = $qtdRestantes > 0 ? ($principalRestante / $qtdRestantes) : 0;
-
-                        // centavos (base + resto na última)
                         $totalRestante = $principalRestante + ($jurosUnit * $qtdRestantes);
                         $totalRestC = (int) round($totalRestante * 100);
                         $baseC  = intdiv($totalRestC, $qtdRestantes);
@@ -342,10 +320,7 @@ class EmprestimoController
 
                         for ($i = 0; $i < $qtdRestantes; $i++) {
                             $row = $rowsNaoPagas[$i];
-
-                            // novo número de parcela continua após pagas
                             $num = $qtdPagasNow + ($i + 1);
-
                             $dv = $this->calcularVencimento($dataEmp, $tipoV, $regraNova, $num);
 
                             $vpC = ($i === ($qtdRestantes - 1)) ? ($baseC + $restoC) : $baseC;
@@ -359,7 +334,6 @@ class EmprestimoController
                             ]);
                         }
                     } else {
-                        // DIARIO/SEMANAL: saldo restante do totalNovo menos o que já foi considerado pago
                         $saldoRestante = max(0, $totalNovo - $totalPagoConsiderado);
 
                         $saldoRestC = (int) round($saldoRestante * 100);
@@ -394,6 +368,7 @@ class EmprestimoController
                     'pagas'        => $qtdPagasNow,
                     'restantes'    => $qtdRestantes,
                     'qtd_total'    => $qtdNova,
+                    'grupo'        => $grupoNovo,
                 ]);
             } catch (Exception $e) {
                 $pdo->rollBack();
@@ -404,14 +379,6 @@ class EmprestimoController
         }
     }
 
-
-    /**
-     * ✅ NOVO: normaliza regra_vencimento pro FRONT (especialmente pro <input type="date">).
-     * - SEMANAL: mantém número 1..6
-     * - DIARIO/MENSAL:
-     *   - se já for YYYY-MM-DD, mantém
-     *   - se vier legado (ex: "15"), tenta pegar a data da parcela 1 (primeiro vencimento real)
-     */
     private function normalizarRegraVencimentoParaUI(string $tipoV, string $regraRaw, array $parcelas): string
     {
         $tipo = strtoupper(trim($tipoV));
@@ -421,20 +388,16 @@ class EmprestimoController
             return $raw;
         }
 
-        // já vem perfeito
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $raw)) {
             return $raw;
         }
 
-        // vem como DATETIME / ISO -> pega só a data
         if (preg_match('/^\d{4}-\d{2}-\d{2}/', $raw)) {
             return substr($raw, 0, 10);
         }
 
-        // legado: regra como número (ex: 15). Para UI, mostra o 1º vencimento real:
         $firstDate = '';
 
-        // tenta achar parcela 1
         foreach ($parcelas as $p) {
             $num = isset($p['numero_parcela']) ? (int)$p['numero_parcela'] : 0;
             if ($num === 1 && !empty($p['data_vencimento'])) {
@@ -443,7 +406,6 @@ class EmprestimoController
             }
         }
 
-        // fallback: pega o menor data_vencimento
         if (!$firstDate) {
             $min = null;
             foreach ($parcelas as $p) {
@@ -455,14 +417,9 @@ class EmprestimoController
             if ($min) $firstDate = $min;
         }
 
-        return $firstDate; // pode ser '' se não achar
+        return $firstDate;
     }
 
-    /**
-     * ✅ NOVO: valida regra_vencimento conforme tipo do empréstimo
-     * - DIARIO/MENSAL: espera data YYYY-MM-DD (primeiro vencimento) e >= data do empréstimo
-     * - SEMANAL: espera número 1..6 (Seg..Sáb)
-     */
     private function validarRegraVencimentoParaTipo(string $tipo, string $regra, string $dataEmprestimo): string
     {
         $tipo = strtoupper(trim($tipo));
@@ -471,7 +428,7 @@ class EmprestimoController
         if ($tipo === 'SEMANAL') {
             if ($regra === '') throw new InvalidArgumentException("regra_vencimento é obrigatória para SEMANAL.");
 
-            $dow = (int)$regra; // 1..6 (Seg..Sáb)
+            $dow = (int)$regra;
             if ($dow < 1 || $dow > 6) {
                 throw new InvalidArgumentException("regra_vencimento semanal deve ser 1-6 (Segunda a Sábado).");
             }
@@ -500,16 +457,8 @@ class EmprestimoController
         throw new InvalidArgumentException("tipo_vencimento inválido.");
     }
 
-    /**
-     * ✅ REGRA NOVA (PEDIDA):
-     * NUNCA permitir vencimento no DOMINGO.
-     * Se uma parcela cair no domingo, ela vai para segunda (+1 dia)
-     * e todas as parcelas seguintes ficam automaticamente deslocadas,
-     * porque o cálculo passa a ser sequencial (parcela por parcela).
-     */
     private function ajustarSeDomingo(DateTime $dt): void
     {
-        // N: 1=Seg ... 7=Dom
         if ((int)$dt->format('N') === 7) {
             $dt->modify('+1 day');
         }
@@ -534,7 +483,6 @@ class EmprestimoController
                 throw new InvalidArgumentException("O primeiro vencimento (DIÁRIO) não pode ser menor que a data do empréstimo.");
             }
 
-            // ✅ cálculo sequencial com ajuste de domingo acumulativo
             $cur = clone $first;
             for ($i = 1; $i <= $n; $i++) {
                 $due = clone $cur;
@@ -545,12 +493,10 @@ class EmprestimoController
                     return $due->format('Y-m-d');
                 }
 
-                // próxima parcela: +1 dia a partir do vencimento ajustado
                 $cur = clone $due;
                 $cur->modify('+1 day');
             }
 
-            // nunca chega aqui
             return $first->format('Y-m-d');
         }
 
@@ -564,23 +510,21 @@ class EmprestimoController
                 throw new InvalidArgumentException("O primeiro vencimento (MENSAL) não pode ser menor que a data do empréstimo.");
             }
 
-            // ✅ cálculo sequencial com ajuste de domingo acumulativo
-            $cur = clone $first;
-            for ($i = 1; $i <= $n; $i++) {
-                $due = clone $cur;
-
-                $this->ajustarSeDomingo($due);
-
-                if ($i === $n) {
-                    return $due->format('Y-m-d');
-                }
-
-                // próxima parcela: +1 mês a partir do vencimento ajustado
-                $cur = clone $due;
-                $cur->modify('+1 month');
+            // NOVA LÓGICA MENSAL: Previne pulos de data e não carrega o ajuste do domingo para o mês seguinte
+            $mesesAAdicionar = $n - 1;
+            $due = clone $first;
+            
+            if ($mesesAAdicionar > 0) {
+                $diaOriginal = (int)$first->format('d');
+                $due->modify('first day of this month');
+                $due->modify("+{$mesesAAdicionar} month");
+                $maxDiaDoMes = (int)$due->format('t');
+                $diaReal = min($diaOriginal, $maxDiaDoMes);
+                $due->setDate((int)$due->format('Y'), (int)$due->format('m'), $diaReal);
             }
 
-            return $first->format('Y-m-d');
+            $this->ajustarSeDomingo($due);
+            return $due->format('Y-m-d');
         }
 
         if ($tipo === 'SEMANAL') {
@@ -588,7 +532,7 @@ class EmprestimoController
                 throw new InvalidArgumentException("regra_vencimento é obrigatória para SEMANAL.");
             }
 
-            $dow = (int)$regra; // 1..6 (Seg..Sáb)
+            $dow = (int)$regra;
             if ($dow < 1 || $dow > 6) {
                 throw new InvalidArgumentException("regra_vencimento semanal deve ser 1-6 (Segunda a Sábado).");
             }
@@ -607,7 +551,6 @@ class EmprestimoController
                 throw new InvalidArgumentException("Vencimento semanal calculado inválido (menor que data do empréstimo).");
             }
 
-            // ✅ cálculo sequencial (mesmo que SEMANAL já evite domingo por regra)
             $cur = clone $first;
             for ($i = 1; $i <= $n; $i++) {
                 $due = clone $cur;
@@ -631,19 +574,16 @@ class EmprestimoController
     public function vencimentosDoDia(): void
     {
         try {
-            $hojeStr = $_GET['data'] ?? date('Y-m-d');
-            $hoje = new DateTime($hojeStr);
-
             $parcelaDao = new ParcelaDAO();
+            $rows = $parcelaDao->listarVencimentosPorPeriodicidade('DIARIO');
 
-            $rows = $parcelaDao->listarVencimentos($hoje);
+            $hojeStr = date('Y-m-d');
+            [$atrasados, $lista] = $this->splitAtrasadosEPeriodoSimples($rows, $hojeStr);
 
-            [$atrasados, $hojeLista] = $this->splitAtrasadosEPeriodo($rows, $hojeStr, $hojeStr);
-
-            $this->responderJson(true, 'Vencimentos', [
+            $this->responderJson(true, 'Vencimentos Diários', [
                 'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'),
-                'lista' => $this->mapVencimentosCustom($hojeLista, 'HOJE'),
-                'periodo_label' => 'Hoje',
+                'lista' => $this->mapVencimentosCustom($lista, 'HOJE'),
+                'periodo_label' => 'Diários',
             ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
@@ -653,23 +593,16 @@ class EmprestimoController
     public function vencimentosAmanha(): void
     {
         try {
-            $hojeStr = $_GET['data'] ?? date('Y-m-d');
-            $hoje = new DateTime($hojeStr);
-
-            $amanha = (new DateTime($hojeStr))->modify('+1 day');
-            $amanhaStr = $amanha->format('Y-m-d');
-
             $parcelaDao = new ParcelaDAO();
+            $rows = $parcelaDao->listarVencimentosPorPeriodicidade('MENSAL');
 
-            $rowsAteHoje = $parcelaDao->listarVencimentos($hoje);
-            [$atrasados, $_ignoreHoje] = $this->splitAtrasadosEPeriodo($rowsAteHoje, $hojeStr, $hojeStr);
+            $hojeStr = date('Y-m-d');
+            [$atrasados, $lista] = $this->splitAtrasadosEPeriodoSimples($rows, $hojeStr);
 
-            $rowsAmanha = $parcelaDao->listarVencimentosEntre($amanha, $amanha);
-
-            $this->responderJson(true, 'Vencimentos amanhã', [
+            $this->responderJson(true, 'Vencimentos Mensais', [
                 'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'),
-                'lista' => $this->mapVencimentosCustom($rowsAmanha, 'AMANHA'),
-                'periodo_label' => 'Amanhã',
+                'lista' => $this->mapVencimentosCustom($lista, 'PENDENTE'),
+                'periodo_label' => 'Mensais',
             ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
@@ -679,27 +612,99 @@ class EmprestimoController
     public function vencimentosSemana(): void
     {
         try {
-            $hojeStr = $_GET['data'] ?? date('Y-m-d');
-            $hoje = new DateTime($hojeStr);
-
-            $ini = new DateTime($hojeStr);
-            $fim = (new DateTime($hojeStr))->modify('+6 day');
-
             $parcelaDao = new ParcelaDAO();
+            $rows = $parcelaDao->listarVencimentosPorPeriodicidade('SEMANAL');
 
-            $rowsAteHoje = $parcelaDao->listarVencimentos($hoje);
-            [$atrasados, $_ignoreHoje] = $this->splitAtrasadosEPeriodo($rowsAteHoje, $hojeStr, $hojeStr);
+            $hojeStr = date('Y-m-d');
+            [$atrasados, $lista] = $this->splitAtrasadosEPeriodoSimples($rows, $hojeStr);
 
-            $rowsSemana = $parcelaDao->listarVencimentosEntre($ini, $fim);
-
-            $this->responderJson(true, 'Vencimentos da semana', [
+            $this->responderJson(true, 'Vencimentos Semanais', [
                 'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'),
-                'lista' => $this->mapVencimentosCustom($rowsSemana, 'PENDENTE'),
-                'periodo_label' => 'Semana',
+                'lista' => $this->mapVencimentosCustom($lista, 'PENDENTE'),
+                'periodo_label' => 'Semanais',
             ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
+    }
+
+    public function vencimentosMes(): void
+    {
+        $this->vencimentosAmanha();
+    }
+
+    public function vencimentosAtrasados(): void
+    {
+        try {
+            $parcelaDao = new ParcelaDAO();
+            
+            $ontem = (new DateTime())->modify('-1 day');
+            $rows = $parcelaDao->listarVencimentos($ontem);
+
+            $this->responderJson(true, 'Atrasados Geral', [
+                'atrasados' => [],
+                'lista' => $this->mapVencimentosCustom($rows, 'ATRASADO'),
+                'periodo_label' => 'Atrasados',
+            ]);
+        } catch (Exception $e) {
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
+    public function vencimentosPorData(): void
+    {
+        try {
+            $dataStr = $_GET['data'] ?? date('Y-m-d');
+            $data = new DateTime($dataStr);
+            $hojeStr = date('Y-m-d');
+
+            $parcelaDao = new ParcelaDAO();
+            
+            $dataMax = ($dataStr > $hojeStr) ? $data : new DateTime($hojeStr);
+            $rows = $parcelaDao->listarVencimentos($dataMax);
+
+            $atrasados = [];
+            $listaDia = [];
+
+            foreach ($rows as $row) {
+                $dataV = substr((string)$row['data_vencimento'], 0, 10);
+                
+                if ($dataV < $hojeStr) {
+                    $atrasados[] = $row;
+                } 
+                elseif ($dataV === $dataStr) {
+                    $listaDia[] = $row;
+                }
+            }
+
+            $statusForcado = ($dataStr === $hojeStr) ? 'HOJE' : 'PENDENTE';
+            $dataFormatada = $data->format('d/m/Y');
+
+            $this->responderJson(true, 'Vencimentos por Data', [
+                'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'), 
+                'lista' => $this->mapVencimentosCustom($listaDia, $statusForcado),
+                'periodo_label' => $dataFormatada,
+            ]);
+        } catch (Exception $e) {
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
+    private function splitAtrasadosEPeriodoSimples(array $rows, string $hojeStr): array
+    {
+        $atrasados = [];
+        $periodo = [];
+
+        foreach ($rows as $row) {
+            $dataV = substr((string)$row['data_vencimento'], 0, 10);
+            if ($dataV < $hojeStr) {
+                $atrasados[] = $row;
+            } else {
+                $periodo[] = $row;
+            }
+        }
+
+        return [$atrasados, $periodo];
     }
 
     private function splitAtrasadosEPeriodo(array $rows, string $iniStr, string $fimStr): array
@@ -749,12 +754,16 @@ class EmprestimoController
             $saida[] = [
                 'cliente_id' => (int)$row['cliente_id'],
                 'cliente_nome' => $row['cliente_nome'],
+                'cliente_cpf' => $row['cliente_cpf'] ?? '',           // Agora recebe o CPF!
+                'cliente_telefone' => $row['cliente_telefone'] ?? '', // Agora recebe o Telefone!
                 'emprestimo_id' => (int)$row['emprestimo_id'],
                 'parcela_id' => (int)$row['parcela_id'],
                 'parcela_num' => isset($row['numero_parcela']) ? (int)$row['numero_parcela'] : null,
                 'data_vencimento' => $dataV,
                 'valor' => $valorPrestacao,
                 'status' => $statusForcado,
+                'grupo' => strtoupper(trim((string)($row['grupo'] ?? 'PADRAO'))),
+                'tipo_vencimento' => $tipoV, 
             ];
         }
 
@@ -784,7 +793,6 @@ class EmprestimoController
             $tipoV = (string)$emp->getTipoVencimento();
             $regraRaw = (string)$emp->getRegraVencimento();
 
-            // ✅ aqui garantimos que DIARIO/MENSAL venha como YYYY-MM-DD pro <input type="date">
             $regraUI = $this->normalizarRegraVencimentoParaUI($tipoV, $regraRaw, $parcelas);
 
             $dados = [
@@ -796,14 +804,10 @@ class EmprestimoController
                     'porcentagem_juros' => $emp->getPorcentagemJuros(),
                     'quantidade_parcelas' => $emp->getQuantidadeParcelas(),
                     'tipo_vencimento' => $tipoV,
-
-                    // ✅ front usa esse
                     'regra_vencimento' => $regraUI,
-
-                    // ✅ guardamos o original pra debug/legado
                     'regra_vencimento_raw' => $regraRaw,
-
                     'status' => $emp->getStatus(),
+                    'grupo' => $emp->getGrupo(),
                 ],
                 'cliente' => [
                     'id' => $cliente->getId(),
@@ -814,6 +818,7 @@ class EmprestimoController
                     'profissao' => $cliente->getProfissao(),
                     'placa_carro' => $cliente->getPlacaCarro(),
                     'indicacao' => $cliente->getIndicacao(),
+                    'grupo' => $cliente->getGrupo(),
                 ],
                 'parcelas' => $parcelas,
                 'pagamentos' => $pagamentos
@@ -843,6 +848,7 @@ class EmprestimoController
                     'parcelas' => $row['parcelas_pagas'] . '/' . $row['quantidade_parcelas'],
                     'proximo_vencimento' => $row['proximo_vencimento'],
                     'status' => $row['status'],
+                    'grupo' => $row['grupo'] ?? 'PADRAO',
                 ];
             }
 
@@ -871,6 +877,7 @@ class EmprestimoController
                     'parcelas' => $row['parcelas_pagas'] . '/' . $row['quantidade_parcelas'],
                     'proximo_vencimento' => $row['proximo_vencimento'],
                     'status' => $row['status'],
+                    'grupo' => $row['grupo'] ?? 'PADRAO',
                 ];
             }
 
@@ -879,6 +886,7 @@ class EmprestimoController
             $this->responderJson(false, $e->getMessage());
         }
     }
+
     public function excluir(): void
     {
         try {
@@ -887,7 +895,6 @@ class EmprestimoController
 
             $pdo = Database::conectar();
 
-            // 1) trava: se tiver qualquer pagamento registrado, não deixa excluir
             $stmt = $pdo->prepare("SELECT COUNT(*) FROM pagamentos WHERE emprestimo_id = :id");
             $stmt->execute([':id' => $id]);
             $qtdPag = (int)$stmt->fetchColumn();
@@ -896,7 +903,6 @@ class EmprestimoController
                 $this->responderJson(false, "Não é possível excluir: já existem pagamentos lançados neste empréstimo.");
             }
 
-            // 2) trava: se alguma parcela tiver valor_pago > 0 ou status pago/quitado/parcial, não deixa
             $stmt2 = $pdo->prepare("
             SELECT COUNT(*)
             FROM parcelas
@@ -913,10 +919,8 @@ class EmprestimoController
                 $this->responderJson(false, "Não é possível excluir: este empréstimo já teve movimento em parcelas.");
             }
 
-            // 3) exclusão em transação
             $pdo->beginTransaction();
             try {
-                // (pagamentos já foi validado que não tem, mas por garantia)
                 $pdo->prepare("DELETE FROM pagamentos WHERE emprestimo_id = :id")->execute([':id' => $id]);
                 $pdo->prepare("DELETE FROM parcelas WHERE emprestimo_id = :id")->execute([':id' => $id]);
 
@@ -937,7 +941,6 @@ class EmprestimoController
             $this->responderJson(false, $e->getMessage());
         }
     }
-
 
     private function responderJson(bool $ok, string $mensagem, $dados = null): void
     {

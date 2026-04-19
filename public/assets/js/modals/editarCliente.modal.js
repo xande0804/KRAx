@@ -39,6 +39,11 @@
     return "📎";
   }
 
+  function normalizarGrupo(grupo) {
+    const g = String(grupo || "").trim().toUpperCase();
+    return g === "MARIA" ? "MARIA" : "PADRAO";
+  }
+
   function buildDocsHtml(docs, clienteId) {
     if (!Array.isArray(docs) || docs.length === 0) {
       return `<div class="muted" style="padding:8px 0;">Nenhum documento anexado.</div>`;
@@ -112,6 +117,7 @@
 
         <form class="modal__body" id="formEditarCliente" action="${API}?route=clientes/atualizar" method="post" enctype="multipart/form-data">
           <input type="hidden" name="id" />
+          <input type="hidden" name="grupo" id="editarClienteGrupoInput" value="PADRAO" />
 
           <div class="form-grid">
             <div class="field form-span-2">
@@ -147,6 +153,35 @@
             <div class="field form-span-2">
               <label>Indicação</label>
               <input name="indicacao" />
+            </div>
+
+            <div class="field form-span-2">
+              <label>Grupo do cliente</label>
+
+              <div
+                style="
+                  display:flex;
+                  align-items:flex-start;
+                  gap:10px;
+                  padding:12px 14px;
+                  border:1px solid var(--line, #2a2f3a);
+                  border-radius:14px;
+                  background:var(--panel, rgba(255,255,255,0.02));
+                "
+              >
+                <input
+                  type="checkbox"
+                  id="editarClienteGrupoMaria"
+                  style="margin-top:3px;"
+                />
+
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                  <label for="editarClienteGrupoMaria" style="margin:0; cursor:pointer; font-weight:600;">
+                    Este cliente pertence ao grupo Novo
+                  </label>
+                  
+                </div>
+              </div>
             </div>
 
             <!-- ✅ NOVO: anexar docs -->
@@ -187,7 +222,6 @@
 
     document.body.appendChild(modal);
 
-    // ativa máscaras no modal
     if (typeof applyMasks === "function") {
       applyMasks(modal);
     }
@@ -197,6 +231,19 @@
     const docsInput = qs("#editarClienteDocsInput");
     const docsSelected = qs("#editarClienteDocsSelected");
     const docsList = qs("#editarClienteDocsList");
+    const grupoCheckbox = qs("#editarClienteGrupoMaria");
+    const grupoInput = qs("#editarClienteGrupoInput");
+
+    function syncGrupoInput() {
+      if (!grupoInput || !grupoCheckbox) return;
+      grupoInput.value = grupoCheckbox.checked ? "MARIA" : "PADRAO";
+    }
+
+    if (grupoCheckbox) {
+      grupoCheckbox.addEventListener("change", syncGrupoInput);
+    }
+
+    syncGrupoInput();
 
     function renderSelectedFiles() {
       if (!docsSelected) return;
@@ -229,13 +276,14 @@
       renderSelectedFiles();
     }
 
-    // SUBMIT
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
       if (btnSubmit) btnSubmit.disabled = true;
 
       try {
+        syncGrupoInput();
+
         const fd = new FormData(form);
 
         const res = await fetch(`${API}?route=clientes/atualizar`, {
@@ -251,11 +299,9 @@
           return;
         }
 
-        // limpa seleção de novos arquivos
         if (docsInput) docsInput.value = "";
         renderSelectedFiles();
 
-        // atualiza a lista de docs sem fechar (fica mais gostoso)
         const id = String(form.querySelector('input[name="id"]')?.value || "");
         if (id) {
           try {
@@ -266,7 +312,6 @@
 
         toast("Cliente atualizado!", "success", 2200);
 
-        // seu padrão atual recarrega a página; mantive, mas sem estourar toast (você depois ajusta o toast.js)
         GestorModal.close("modalEditarCliente");
         onSuccess("Cliente atualizado!", { reload: true });
       } catch (err) {
@@ -277,7 +322,6 @@
       }
     });
 
-    // DELETE DOC (depende da rota que vamos criar)
     document.addEventListener("click", async (e) => {
       const btn = e.target.closest('[data-doc-delete="1"]');
       if (!btn) return;
@@ -310,7 +354,6 @@
 
         toast("Documento excluído.", "success", 2200);
 
-        // re-carrega detalhes pra refletir a lista
         const dados = await fetchClienteDetalhes(clienteId);
         if (docsList) docsList.innerHTML = buildDocsHtml(dados.documentos || [], clienteId);
       } catch (err) {
@@ -321,12 +364,10 @@
     });
   }
 
-  // ✅ FUNÇÃO QUE O INDEX VAI CHAMAR
   window.openEditarCliente = async function openEditarCliente(clienteId) {
     const id = String(clienteId || "");
     if (!id) return;
 
-    // garante que o modal existe
     if (!document.getElementById("modalEditarCliente")) {
       injectModalEditarCliente();
     }
@@ -337,13 +378,13 @@
     const docsList = modal.querySelector("#editarClienteDocsList");
     const docsInput = modal.querySelector("#editarClienteDocsInput");
     const docsSelected = modal.querySelector("#editarClienteDocsSelected");
+    const grupoCheckbox = modal.querySelector("#editarClienteGrupoMaria");
+    const grupoInput = modal.querySelector("#editarClienteGrupoInput");
 
-    // reset visual
     if (docsInput) docsInput.value = "";
     if (docsSelected) docsSelected.innerHTML = `<div class="muted" style="padding:8px 0;">Nenhum arquivo novo selecionado.</div>`;
     if (docsList) docsList.innerHTML = `<div class="muted" style="padding:8px 0;">Carregando documentos...</div>`;
 
-    // feedback rápido
     const nomeInput = form.querySelector('input[name="nome"]');
     if (nomeInput) nomeInput.value = "Carregando...";
 
@@ -359,12 +400,15 @@
       form.querySelector('input[name="placa_carro"]').value = c.placa_carro || "";
       form.querySelector('input[name="indicacao"]').value = c.indicacao || "";
 
+      const grupo = normalizarGrupo(c.grupo);
+      if (grupoCheckbox) grupoCheckbox.checked = grupo === "MARIA";
+      if (grupoInput) grupoInput.value = grupo;
+
       const cpfInput = form.querySelector('input[name="cpf"]');
       const telInput = form.querySelector('input[name="telefone"]');
       if (cpfInput) cpfInput.dispatchEvent(new Event("input"));
       if (telInput) telInput.dispatchEvent(new Event("input"));
 
-      // docs
       if (docsList) docsList.innerHTML = buildDocsHtml(c.documentos || [], id);
 
       GestorModal.open("modalEditarCliente");
@@ -374,6 +418,5 @@
     }
   };
 
-  // expõe injetor
   window.injectModalEditarCliente = injectModalEditarCliente;
 })();
