@@ -1,3 +1,4 @@
+// public/assets/js/pages/clientes.js
 (function () {
   const list = document.getElementById("clientesList");
   const countEl = document.getElementById("clientesCount");
@@ -96,9 +97,20 @@
       const wa = toWaNumberOrEmpty(telefoneRaw);
       const waLink = wa ? `https://wa.me/${wa}` : "";
 
+      // ADDED: Pegamos a versão limpa do CPF e Telefone (só números) para guardar no filtro invisível
+      const cpfLimpo = cpf.replace(/\D/g, "");
+      const telLimpo = telefoneRaw.replace(/\D/g, "");
+
       const article = document.createElement("article");
       article.className = "list-item";
-      article.setAttribute("data-filter", `${nome} ${telefone} ${cpf} ${grupo}`.toLowerCase());
+      
+      // Juntamos tudo no filtro invisível
+      const filterStr = `${nome} ${telefone} ${cpf} ${cpfLimpo} ${telLimpo} ${grupo}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+
+      article.setAttribute("data-filter", filterStr);
       article.setAttribute("data-grupo", grupo);
 
       const wppBtn = waLink
@@ -178,14 +190,34 @@
   }
 
   function filtrar() {
-    const q = input ? input.value.trim().toLowerCase() : "";
+    const rawQ = input ? input.value : "";
+    
+    // Normaliza (tira acentos e deixa minúsculo)
+    const qNorm = rawQ.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    // Pega só os números
+    const qNumeros = rawQ.replace(/\D/g, "");
+    // Separa a busca por espaços
+    const termos = qNorm.split(/\s+/).filter(Boolean);
+
     const grupoSelecionado = grupoFilter ? grupoFilter.value : "todos";
     let visible = 0;
 
     items.forEach((item) => {
       const hay = item.getAttribute("data-filter") || "";
       const grupo = item.getAttribute("data-grupo") || "";
-      const matchTexto = hay.includes(q);
+
+      let matchTexto = true;
+      
+      if (termos.length > 0) {
+        // Checa se bate exato com os números digitados ou com todas as palavras
+        const bateNumeros = qNumeros && hay.includes(qNumeros);
+        const bateTermos = termos.every(t => hay.includes(t));
+        
+        if (!bateNumeros && !bateTermos) {
+          matchTexto = false;
+        }
+      }
+
       const matchGrupo = passaFiltroGrupo(grupo, grupoSelecionado);
       const show = matchTexto && matchGrupo;
 

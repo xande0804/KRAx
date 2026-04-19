@@ -198,7 +198,7 @@ class EmprestimoController
                     ':juros' => $jurosPctNovo,
                     ':regra' => $regraNova,
                     ':grupo' => $grupoNovo,
-                    ':id'    => $id
+                    ':id'     => $id
                 ]);
 
                 $stmtSel = $pdo->prepare("
@@ -510,21 +510,21 @@ class EmprestimoController
                 throw new InvalidArgumentException("O primeiro vencimento (MENSAL) não pode ser menor que a data do empréstimo.");
             }
 
-            $cur = clone $first;
-            for ($i = 1; $i <= $n; $i++) {
-                $due = clone $cur;
-
-                $this->ajustarSeDomingo($due);
-
-                if ($i === $n) {
-                    return $due->format('Y-m-d');
-                }
-
-                $cur = clone $due;
-                $cur->modify('+1 month');
+            // NOVA LÓGICA MENSAL: Previne pulos de data e não carrega o ajuste do domingo para o mês seguinte
+            $mesesAAdicionar = $n - 1;
+            $due = clone $first;
+            
+            if ($mesesAAdicionar > 0) {
+                $diaOriginal = (int)$first->format('d');
+                $due->modify('first day of this month');
+                $due->modify("+{$mesesAAdicionar} month");
+                $maxDiaDoMes = (int)$due->format('t');
+                $diaReal = min($diaOriginal, $maxDiaDoMes);
+                $due->setDate((int)$due->format('Y'), (int)$due->format('m'), $diaReal);
             }
 
-            return $first->format('Y-m-d');
+            $this->ajustarSeDomingo($due);
+            return $due->format('Y-m-d');
         }
 
         if ($tipo === 'SEMANAL') {
@@ -574,19 +574,16 @@ class EmprestimoController
     public function vencimentosDoDia(): void
     {
         try {
-            $hojeStr = $_GET['data'] ?? date('Y-m-d');
-            $hoje = new DateTime($hojeStr);
-
             $parcelaDao = new ParcelaDAO();
+            $rows = $parcelaDao->listarVencimentosPorPeriodicidade('DIARIO');
 
-            $rows = $parcelaDao->listarVencimentos($hoje);
+            $hojeStr = date('Y-m-d');
+            [$atrasados, $lista] = $this->splitAtrasadosEPeriodoSimples($rows, $hojeStr);
 
-            [$atrasados, $hojeLista] = $this->splitAtrasadosEPeriodo($rows, $hojeStr, $hojeStr);
-
-            $this->responderJson(true, 'Vencimentos', [
+            $this->responderJson(true, 'Vencimentos Diários', [
                 'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'),
-                'lista' => $this->mapVencimentosCustom($hojeLista, 'HOJE'),
-                'periodo_label' => 'Hoje',
+                'lista' => $this->mapVencimentosCustom($lista, 'HOJE'),
+                'periodo_label' => 'Diários',
             ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
@@ -596,22 +593,16 @@ class EmprestimoController
     public function vencimentosAmanha(): void
     {
         try {
-            $hojeStr = $_GET['data'] ?? date('Y-m-d');
-            $hoje = new DateTime($hojeStr);
-
-            $amanha = (new DateTime($hojeStr))->modify('+1 day');
-
             $parcelaDao = new ParcelaDAO();
+            $rows = $parcelaDao->listarVencimentosPorPeriodicidade('MENSAL');
 
-            $rowsAteHoje = $parcelaDao->listarVencimentos($hoje);
-            [$atrasados, $_ignoreHoje] = $this->splitAtrasadosEPeriodo($rowsAteHoje, $hojeStr, $hojeStr);
+            $hojeStr = date('Y-m-d');
+            [$atrasados, $lista] = $this->splitAtrasadosEPeriodoSimples($rows, $hojeStr);
 
-            $rowsAmanha = $parcelaDao->listarVencimentosEntre($amanha, $amanha);
-
-            $this->responderJson(true, 'Vencimentos amanhã', [
+            $this->responderJson(true, 'Vencimentos Mensais', [
                 'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'),
-                'lista' => $this->mapVencimentosCustom($rowsAmanha, 'AMANHA'),
-                'periodo_label' => 'Amanhã',
+                'lista' => $this->mapVencimentosCustom($lista, 'PENDENTE'),
+                'periodo_label' => 'Mensais',
             ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
@@ -621,27 +612,99 @@ class EmprestimoController
     public function vencimentosSemana(): void
     {
         try {
-            $hojeStr = $_GET['data'] ?? date('Y-m-d');
-            $hoje = new DateTime($hojeStr);
-
-            $ini = new DateTime($hojeStr);
-            $fim = (new DateTime($hojeStr))->modify('+6 day');
-
             $parcelaDao = new ParcelaDAO();
+            $rows = $parcelaDao->listarVencimentosPorPeriodicidade('SEMANAL');
 
-            $rowsAteHoje = $parcelaDao->listarVencimentos($hoje);
-            [$atrasados, $_ignoreHoje] = $this->splitAtrasadosEPeriodo($rowsAteHoje, $hojeStr, $hojeStr);
+            $hojeStr = date('Y-m-d');
+            [$atrasados, $lista] = $this->splitAtrasadosEPeriodoSimples($rows, $hojeStr);
 
-            $rowsSemana = $parcelaDao->listarVencimentosEntre($ini, $fim);
-
-            $this->responderJson(true, 'Vencimentos da semana', [
+            $this->responderJson(true, 'Vencimentos Semanais', [
                 'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'),
-                'lista' => $this->mapVencimentosCustom($rowsSemana, 'PENDENTE'),
-                'periodo_label' => 'Semana',
+                'lista' => $this->mapVencimentosCustom($lista, 'PENDENTE'),
+                'periodo_label' => 'Semanais',
             ]);
         } catch (Exception $e) {
             $this->responderJson(false, $e->getMessage());
         }
+    }
+
+    public function vencimentosMes(): void
+    {
+        $this->vencimentosAmanha();
+    }
+
+    public function vencimentosAtrasados(): void
+    {
+        try {
+            $parcelaDao = new ParcelaDAO();
+            
+            $ontem = (new DateTime())->modify('-1 day');
+            $rows = $parcelaDao->listarVencimentos($ontem);
+
+            $this->responderJson(true, 'Atrasados Geral', [
+                'atrasados' => [],
+                'lista' => $this->mapVencimentosCustom($rows, 'ATRASADO'),
+                'periodo_label' => 'Atrasados',
+            ]);
+        } catch (Exception $e) {
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
+    public function vencimentosPorData(): void
+    {
+        try {
+            $dataStr = $_GET['data'] ?? date('Y-m-d');
+            $data = new DateTime($dataStr);
+            $hojeStr = date('Y-m-d');
+
+            $parcelaDao = new ParcelaDAO();
+            
+            $dataMax = ($dataStr > $hojeStr) ? $data : new DateTime($hojeStr);
+            $rows = $parcelaDao->listarVencimentos($dataMax);
+
+            $atrasados = [];
+            $listaDia = [];
+
+            foreach ($rows as $row) {
+                $dataV = substr((string)$row['data_vencimento'], 0, 10);
+                
+                if ($dataV < $hojeStr) {
+                    $atrasados[] = $row;
+                } 
+                elseif ($dataV === $dataStr) {
+                    $listaDia[] = $row;
+                }
+            }
+
+            $statusForcado = ($dataStr === $hojeStr) ? 'HOJE' : 'PENDENTE';
+            $dataFormatada = $data->format('d/m/Y');
+
+            $this->responderJson(true, 'Vencimentos por Data', [
+                'atrasados' => $this->mapVencimentosCustom($atrasados, 'ATRASADO'), 
+                'lista' => $this->mapVencimentosCustom($listaDia, $statusForcado),
+                'periodo_label' => $dataFormatada,
+            ]);
+        } catch (Exception $e) {
+            $this->responderJson(false, $e->getMessage());
+        }
+    }
+
+    private function splitAtrasadosEPeriodoSimples(array $rows, string $hojeStr): array
+    {
+        $atrasados = [];
+        $periodo = [];
+
+        foreach ($rows as $row) {
+            $dataV = substr((string)$row['data_vencimento'], 0, 10);
+            if ($dataV < $hojeStr) {
+                $atrasados[] = $row;
+            } else {
+                $periodo[] = $row;
+            }
+        }
+
+        return [$atrasados, $periodo];
     }
 
     private function splitAtrasadosEPeriodo(array $rows, string $iniStr, string $fimStr): array
@@ -691,6 +754,8 @@ class EmprestimoController
             $saida[] = [
                 'cliente_id' => (int)$row['cliente_id'],
                 'cliente_nome' => $row['cliente_nome'],
+                'cliente_cpf' => $row['cliente_cpf'] ?? '',           // Agora recebe o CPF!
+                'cliente_telefone' => $row['cliente_telefone'] ?? '', // Agora recebe o Telefone!
                 'emprestimo_id' => (int)$row['emprestimo_id'],
                 'parcela_id' => (int)$row['parcela_id'],
                 'parcela_num' => isset($row['numero_parcela']) ? (int)$row['numero_parcela'] : null,
@@ -698,6 +763,7 @@ class EmprestimoController
                 'valor' => $valorPrestacao,
                 'status' => $statusForcado,
                 'grupo' => strtoupper(trim((string)($row['grupo'] ?? 'PADRAO'))),
+                'tipo_vencimento' => $tipoV, 
             ];
         }
 

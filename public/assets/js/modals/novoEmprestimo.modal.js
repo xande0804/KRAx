@@ -49,11 +49,20 @@
     return `${yy}-${mm}-${dd}`;
   }
 
+  // --- CORREÇÃO: Função agora previne o "Bug de Fevereiro" travando no último dia útil do mês ---
   function addMonthsISO(iso, months) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(iso || ""))) return "";
-    const [y, m, d] = iso.split("-").map((x) => Number(x));
-    const dt = new Date(y, m - 1, d);
-    dt.setMonth(dt.getMonth() + Number(months || 0));
+    const [y, m, d] = iso.split("-").map(Number);
+    
+    // Seta pro dia 1º do mês alvo primeiro para evitar pulos indesejados
+    const dt = new Date(y, (m - 1) + Number(months || 0), 1);
+    
+    // Descobre qual é o último dia do novo mês
+    const maxDay = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate();
+    
+    // Seta o dia, respeitando o limite do mês (ex: 31 em Fev vira 28)
+    dt.setDate(Math.min(d, maxDay));
+    
     const yy = dt.getFullYear();
     const mm = String(dt.getMonth() + 1).padStart(2, "0");
     const dd = String(dt.getDate()).padStart(2, "0");
@@ -848,7 +857,11 @@
         hideSuggest();
 
         toast("Empréstimo criado!");
-        window.location.href = "/KRAx/app/views/emprestimos.php";
+        
+        // --- CORREÇÃO DO ERRO 404: 
+        // Em vez de te jogar num arquivo que não existe, recarrega a página que você já está! ---
+        window.location.reload();
+
       } catch (err) {
         console.error(err);
         if (btnSubmit) btnSubmit.disabled = false;
