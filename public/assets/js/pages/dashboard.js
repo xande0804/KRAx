@@ -5,74 +5,225 @@
   const elHoje = document.getElementById("statHoje");
   const elAtrasados = document.getElementById("statAtrasados");
 
-  if (!elClientes && !elAtivos && !elHoje && !elAtrasados) return;
+  const elQuantoSaiu = document.getElementById("statQuantoSaiu");
+  const elQuantoVoltou = document.getElementById("statQuantoVoltou");
+  const elPrevistoVoltar = document.getElementById("statPrevistoVoltar");
 
-  function setText(el, v) {
-    if (el) el.textContent = String(v ?? "—");
+  const elFiltroForm = document.getElementById("dashboardFiltroForm");
+  const elDataInicial = document.getElementById("dashboardDataInicial");
+  const elDataFinal = document.getElementById("dashboardDataFinal");
+  const elLimparFiltro = document.getElementById("dashboardLimparFiltro");
+  const elFiltroInfo = document.getElementById("dashboardFiltroInfo");
+  const elErro = document.getElementById("dashboardErro");
+
+  const ctxEmp = document.getElementById("graficoEmprestimosMes");
+  const ctxFin = document.getElementById("graficoFinanceiroMes");
+
+  let chartEmp = null;
+  let chartFin = null;
+
+  function moneyBR(v) {
+    return Number(v || 0).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
   }
 
-  async function safeReadJson(res) {
-    const text = await res.text();
-    try {
-      return { ok: true, json: JSON.parse(text), raw: text };
-    } catch (e) {
-      console.error("❌ Resposta NÃO é JSON:", text);
-      return { ok: false, json: null, raw: text };
+  function animateNumber(el, finalValue, isMoney = false) {
+    let start = 0;
+    const duration = 800;
+    const startTime = performance.now();
+
+    function update(now) {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const value = start + (finalValue - start) * progress;
+
+      el.textContent = isMoney ? moneyBR(value) : Math.floor(value);
+
+      if (progress < 1) requestAnimationFrame(update);
     }
+
+    requestAnimationFrame(update);
   }
 
-  async function fetchOk(url) {
-    const res = await fetch(url, { headers: { Accept: "application/json" } });
-    const parsed = await safeReadJson(res);
-    if (!parsed.ok || !parsed.json) throw new Error("Resposta inválida do servidor.");
-    if (!parsed.json.ok) throw new Error(parsed.json.mensagem || "Erro no servidor.");
-    return parsed.json.dados;
+  function aplicarResumoOperacional(dados) {
+    const o = dados.operacional || {};
+
+    animateNumber(elClientes, o.clientes);
+    animateNumber(elAtivos, o.emprestimos_ativos);
+    animateNumber(elHoje, o.vencem_hoje);
+    animateNumber(elAtrasados, o.atrasados);
+  }
+
+  function aplicarResumoFinanceiro(dados) {
+    const f = dados.financeiro || {};
+
+    animateNumber(elQuantoSaiu, f.quanto_saiu, true);
+    animateNumber(elQuantoVoltou, f.quanto_ja_voltou, true);
+    animateNumber(elPrevistoVoltar, f.previsto_ainda_pra_voltar, true);
+  }
+
+  function renderGraficoEmprestimos(lista) {
+    if (!ctxEmp) return;
+
+    const labels = lista.map(i => i.mes);
+    const data = lista.map(i => i.quantidade);
+
+    if (chartEmp) chartEmp.destroy();
+
+    chartEmp = new Chart(ctxEmp, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{
+          label: "Empréstimos",
+          data,
+          backgroundColor: "#2f5fe3",
+          borderRadius: 8,
+          barThickness: 40,
+        }]
+      },
+      options: {
+        responsive: true,
+        animation: {
+          duration: 1000
+        },
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          y: {
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
+  function renderGraficoFinanceiro(lista) {
+    if (!ctxFin) return;
+
+    const labels = lista.map(i => i.mes);
+    const voltou = lista.map(i => i.valor_voltou);
+    const saiu = lista.map(i => i.valor_saiu);
+
+    if (chartFin) chartFin.destroy();
+
+    chartFin = new Chart(ctxFin, {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: "bar",
+            label: "Saiu",
+            data: saiu,
+            backgroundColor: "#2f5fe3",
+            borderRadius: 6,
+            barThickness: 35,
+            order: 2,
+          },
+          {
+            type: "line",
+            label: "Voltou",
+            data: voltou,
+            borderColor: "#16a34a",
+            borderWidth: 2,
+            tension: 0.35,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+            pointBorderWidth: 2,
+            pointBackgroundColor: "#16a34a",
+            pointBorderColor: "#ffffff",
+            borderDash: [6, 6],
+            fill: false,
+            order: 1,
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        animation: {
+          duration: 1200
+        },
+        plugins: {
+          legend: {
+            position: "top"
+          },
+          tooltip: {
+            callbacks: {
+              label: function (context) {
+                const label = context.dataset.label || "";
+                const value = context.raw || 0;
+      
+                return `${label}: ${value.toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL"
+                })}`;
+              }
+            }
+          }
+        },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: {
+              callback: function (value) {
+                return value.toLocaleString("pt-BR", {
+                  style: "currency",
+                  currency: "BRL"
+                });
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  async function fetchData() {
+    const params = new URLSearchParams();
+    params.set("route", "dashboard/resumo");
+
+    if (elDataInicial.value && elDataFinal.value) {
+      params.set("data_inicial", elDataInicial.value);
+      params.set("data_final", elDataFinal.value);
+    }
+
+    const res = await fetch(`/KRAx/public/api.php?${params.toString()}`);
+    const json = await res.json();
+
+    if (!json.ok) throw new Error(json.mensagem);
+
+    return json.dados;
   }
 
   async function carregar() {
     try {
-      // Clientes
-      if (elClientes) {
-        const clientes = await fetchOk("/KRAx/public/api.php?route=clientes/listar");
-        setText(elClientes, Array.isArray(clientes) ? clientes.length : 0);
-      }
+      const dados = await fetchData();
 
-      // Empréstimos ativos
-      if (elAtivos) {
-        const ativos = await fetchOk("/KRAx/public/api.php?route=emprestimos/listar&filtro=ATIVO");
-        setText(elAtivos, Array.isArray(ativos) ? ativos.length : 0);
-      }
+      aplicarResumoOperacional(dados);
+      aplicarResumoFinanceiro(dados);
 
-      // Vencimentos de hoje + atrasados (rota real do seu api.php)
-      if (elHoje || elAtrasados) {
-        const dadosVenc = await fetchOk("/KRAx/public/api.php?route=vencimentos/hoje");
+      renderGraficoEmprestimos(dados.graficos.emprestimos_por_mes);
+      renderGraficoFinanceiro(dados.graficos.financeiro_por_mes);
 
-        const atrasadosArr = Array.isArray(dadosVenc?.atrasados) ? dadosVenc.atrasados : [];
-        const hojeArr = Array.isArray(dadosVenc?.lista) ? dadosVenc.lista : [];
-
-        // Vencem hoje = quantidade de parcelas que vencem hoje
-        if (elHoje) setText(elHoje, hojeArr.length);
-
-        // ✅ Atrasados = quantidade de CLIENTES únicos atrasados (não parcelas)
-        if (elAtrasados) {
-          const clientesUnicos = new Set(
-            atrasadosArr
-              .map((x) => Number(x?.cliente_id || 0))
-              .filter((id) => id > 0)
-          );
-          setText(elAtrasados, clientesUnicos.size);
-        }
-      }
+      elFiltroInfo.textContent = "Dados atualizados";
     } catch (e) {
       console.error(e);
-
-      // não deixa "..." eterno
-      if (elClientes && elClientes.textContent.trim() === "...") setText(elClientes, "—");
-      if (elAtivos && elAtivos.textContent.trim() === "...") setText(elAtivos, "—");
-      if (elHoje && elHoje.textContent.trim() === "...") setText(elHoje, "—");
-      if (elAtrasados && elAtrasados.textContent.trim() === "...") setText(elAtrasados, "—");
+      elErro.style.display = "";
     }
   }
+
+  elFiltroForm?.addEventListener("submit", e => {
+    e.preventDefault();
+    carregar();
+  });
+
+  elLimparFiltro?.addEventListener("click", () => {
+    elDataInicial.value = "";
+    elDataFinal.value = "";
+    carregar();
+  });
 
   carregar();
 })();
