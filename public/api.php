@@ -75,6 +75,20 @@ switch ($route) {
         (new EmprestimoController())->vencimentosSemana();
         break;
 
+    case 'vencimentos/mes':
+        (new EmprestimoController())->vencimentosMes();
+        break;
+
+    case 'vencimentos/atrasados':
+        (new EmprestimoController())->vencimentosAtrasados();
+        break;
+
+    // --- NOVA ROTA PARA BUSCAR POR DATA ESPECÍFICA ---
+    case 'vencimentos/por_data':
+        (new EmprestimoController())->vencimentosPorData();
+        break;
+    // -------------------------------------------------
+
     case 'emprestimos/detalhes':
         (new EmprestimoController())->detalhes();
         break;
