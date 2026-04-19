@@ -848,7 +848,7 @@
         hideSuggest();
 
         toast("Empréstimo criado!");
-        window.location.href = "emprestimos.php";
+        window.location.href = "/KRAx/app/views/emprestimos.php";
       } catch (err) {
         console.error(err);
         if (btnSubmit) btnSubmit.disabled = false;
