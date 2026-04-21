@@ -59,7 +59,7 @@
     const label = `${fmtDateBR(dataInicial)} até ${fmtDateBR(dataFinal)}`;
 
     return periodoPadrao
-      ? `Período atual: ${label} (últimos 12 meses).`
+      ? `Período atual: ${label} (último mês).`
       : `Período filtrado: ${label}.`;
   }
 
@@ -373,6 +373,10 @@
     if (elDataFinal) elDataFinal.value = "";
     carregar();
   });
+
+  if (elLimparFiltro) {
+    elLimparFiltro.textContent = "Último mês";
+  }
 
   carregar();
 })();
