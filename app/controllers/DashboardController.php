@@ -20,14 +20,14 @@ class DashboardController
                     'atrasados'            => $dashboardDAO->contarClientesAtrasados($hoje),
                 ],
                 'financeiro' => [
-                    'quanto_saiu'                  => $dashboardDAO->somarQuantoSaiu($filtro['data_inicial'], $filtro['data_final']),
-                    'quanto_ja_voltou'             => $dashboardDAO->somarQuantoJaVoltou($filtro['data_inicial'], $filtro['data_final']),
-                    'previsto_ainda_pra_voltar'    => $dashboardDAO->somarPrevistoAindaPraVoltar(),
+                    'quanto_saiu'               => $dashboardDAO->somarQuantoSaiu($filtro['data_inicial'], $filtro['data_final']),
+                    'quanto_ja_voltou'          => $dashboardDAO->somarQuantoJaVoltou($filtro['data_inicial'], $filtro['data_final']),
+                    'previsto_ainda_pra_voltar' => $dashboardDAO->somarPrevistoAindaPraVoltar(),
                 ],
                 'filtro' => [
-                    'data_inicial'             => $filtro['data_inicial'],
-                    'data_final'               => $filtro['data_final'],
-                    'periodo_padrao_aplicado'  => $filtro['periodo_padrao_aplicado'],
+                    'data_inicial'            => $filtro['data_inicial'],
+                    'data_final'              => $filtro['data_final'],
+                    'periodo_padrao_aplicado' => $filtro['periodo_padrao_aplicado'],
                 ],
                 'graficos' => [
                     'emprestimos_por_mes' => $dashboardDAO->listarEmprestimosPorMes($filtro['data_inicial'], $filtro['data_final']),
@@ -53,7 +53,7 @@ class DashboardController
 
         if ($dataInicial === '' && $dataFinal === '') {
             $dtFinal = new DateTimeImmutable($hoje);
-            $dtInicial = $dtFinal->modify('-1 year');
+            $dtInicial = $dtFinal->modify('-1 month');
 
             return [
                 'data_inicial'            => $dtInicial->format('Y-m-d'),
